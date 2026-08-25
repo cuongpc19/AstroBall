@@ -1202,62 +1202,48 @@ function drawWell() {
 /**
  * Một cái máng, vẽ như một bình nhỏ — cùng họ hình với khay nước ở trên.
  *
- * ⚠ **Chỉ cái NẮP mang màu.** Thân để trắng, nên thứ duy nhất có màu trên một bình
- * rỗng là cái nắp, và khi nước dâng thì nắp với nước cùng một màu — người chơi đọc
- * "bình này nhận màu này" ở đúng một chỗ.
+/**
+ * Một cái máng, vẽ phẳng: thân nhạt bo tròn, khối nước ĐẶC nằm lọt bên trong, nắp là
+ * một cục bo tròn nhỏ trên đỉnh.
  *
- * ⚠ Nắp là một cái CỔ ĐƯỢC LẮP VÀO, không phải nắp chai rời đặt lên trên. Bản trước
- * là một chữ nhật bo góc thả nổi phía trên thân, và nó đọc đúng như thế: mấy cái nắp
- * chai rơi ra. Giờ nó có vai loe rộng hơn thân, một khe tối dưới đáy nắp, và thân
- * bình khoét lõm vào để đón — ba thứ nói cùng một câu "cái này cắm vào cái kia".
+ * ⚠ **Không gradient, không bóng đổ, không vệt sáng.** Ba bản trước đều đi hướng
+ * ngược lại — thêm khối, thêm bóng trong lòng, thêm cổ lắp có vai — và mỗi lần lại
+ * đông đúc hơn. Ở kích thước 50x40, nhân với mười sáu cái cùng lúc, mọi lớp đánh
+ * bóng đều biến thành nhiễu. Phẳng thì thứ duy nhất mắt bắt được là MÀU và CHIỀU
+ * CAO của khối nước, mà đó đúng là hai thứ duy nhất cần đọc.
  *
- * ⚠ Lòng bình có bóng đổ trong và viền đậm hơn. Trắng phẳng trên nền giếng trắng thì
- * ranh giới các ô lẫn vào nhau, và cả cột đọc thành một mảng sáng — đó là nhận xét
- * "độ tương phản thấp", và nó đúng.
+ * ⚠ Khối nước thụt vào cả bốn phía, kể cả khi đầy. Cho nó chạm mép thân thì cái
+ * thân biến mất và chỉ còn một mảng màu — mất luôn dấu hiệu "đây là một cái bình có
+ * sức chứa", tức mất chỗ để đọc "còn trống bao nhiêu".
  */
 function drawTrough(x, y, t, open) {
   const p = PAL[t.color];
   const lv = t.filled / TROUGH_CAP;
-  const bw = 56, bh = TR.h;
+  const bw = 50, bh = TR.h;
   const bx = x + (TR.w - bw) / 2;
 
-  // Bóng đổ dưới bình, để nó rời khỏi mặt giếng.
-  fillRR(bx + 1, y + 4, bw - 2, bh - 2, 12, "rgba(40,58,92,0.22)");
+  ctx.globalAlpha = open ? 1 : 0.72;
 
-  // Vai nắp loe rộng hơn thân, rồi khe tối, rồi mặt nắp.
-  const cw = bw - 12;
-  fillRR(bx + (bw - cw) / 2 - 2, y - 13, cw + 4, 15, 5, shade(p.dark, 0.72));
-  fillRR(bx + (bw - cw) / 2, y - 13, cw, 10, 4, p.base);
-  fillRR(bx + (bw - cw) / 2 + 3, y - 12, cw - 6, 4, 2, p.light);
+  // Nắp — cùng màu nước, vì đây là thứ duy nhất mang màu khi bình còn rỗng.
+  fillRR(bx + bw / 2 - 8, y - 10, 16, 12, 4, p.base);
 
-  fillRR(bx, y, bw, bh, 12, "#fbfcff");
+  // Thân: gần trắng, chỉ ngả nhẹ về phía màu của nó.
+  fillRR(bx, y, bw, bh, 13, "#f3f4fa");
+  ctx.strokeStyle = shade(p.dark, 0.95);
+  // ⚠ 0.45 chứ không phải 0.28: giếng đã trắng, thân bình cũng gần trắng, nên cái
+  // viền tô nhạt màu là thứ DUY NHẤT tách được hai lớp đó ra. Ở 0.28 cả cột nhoè
+  // thành một mảng sáng — đúng lỗi tương phản thấp vừa sửa xong ở bản trước.
+  ctx.globalAlpha *= 0.45;
+  ctx.lineWidth = 1.5;
+  rr(bx, y, bw, bh, 13); ctx.stroke();
+  ctx.globalAlpha = open ? 1 : 0.72;
 
-  ctx.save();
-  rr(bx + 2, y + 2, bw - 4, bh - 4, 10); ctx.clip();
-  // Bóng đổ trong lòng: tối ở vai, sáng dần xuống đáy. Đây là thứ cho cái bình có
-  // CHIỀU SÂU thay vì là một ô trắng dán lên giếng.
-  const sg = ctx.createLinearGradient(0, y, 0, y + bh);
-  sg.addColorStop(0, "rgba(70,95,140,0.30)");
-  sg.addColorStop(0.35, "rgba(70,95,140,0.05)");
-  sg.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = sg;
-  ctx.fillRect(bx, y, bw, bh);
-  if (lv > 0) {
-    const top = y + bh - lv * (bh - 3);
-    const g = ctx.createLinearGradient(0, top, 0, y + bh);
-    g.addColorStop(0, p.light); g.addColorStop(0.35, p.base); g.addColorStop(1, p.dark);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    waterTop(bx, bw, top, 1.4, performance.now() * 0.005 + x * 0.03);
-    ctx.lineTo(bx + bw, y + bh); ctx.lineTo(bx, y + bh); ctx.closePath();
-    ctx.fill();
-  }
-  ctx.restore();
+  // Lòng: hốc nhạt cố định, rồi khối nước dâng trong đó.
+  const ix = bx + 7, iw = bw - 14, iy = y + 7, ih = bh - 14;
+  fillRR(ix, iy, iw, ih, 9, "#dfe3f0");
+  if (lv > 0) fillRR(ix, iy + ih - lv * ih, iw, lv * ih, 9, p.base);
 
-  ctx.strokeStyle = open ? "rgba(66,86,124,0.9)" : "rgba(84,104,142,0.6)";
-  ctx.lineWidth = open ? 2.2 : 1.8;
-  rr(bx, y, bw, bh, 12); ctx.stroke();
-  fillRR(bx + 7, y + 7, 3.5, bh - 18, 1.8, "rgba(255,255,255,0.85)");
+  ctx.globalAlpha = 1;
 }
 
 function drawTroughs() {

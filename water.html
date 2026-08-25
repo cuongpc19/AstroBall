@@ -314,6 +314,10 @@ const liftable = (t) => pourable(t) && canEscape(t);
 
 function tapTile(t) {
   if (phase !== "play" || !t || !liftable(t)) return;
+  // ⚠ Phản hồi chạm: bình nảy một nhịp rồi mới nghiêng. Không có nó thì trong 200ms
+  // đầu — đúng khoảng thời gian ngón tay còn che mất cái bình — một cú chạm hợp lệ
+  // và một cú chạm vào bình bị khoá phản hồi giống hệt nhau: không gì cả.
+  t.tap = 1;
   t.pouring = true; t.pourT = 0;
   for (const p of t.pots) p.poured = 0;
 }
@@ -501,6 +505,7 @@ function step(now, dt) {
   for (let i = 0; i < COLS; i++) slide[i] = Math.max(0, slide[i] - dt / CLEAR_MS);
   if (overflow) overflow.t += dt / 1500;
   for (const t of tiles) if (t.pop > 0) t.pop = Math.max(0, t.pop - dt / POP_MS);
+  for (const t of tiles) if (t.tap > 0) t.tap = Math.max(0, t.tap - dt / 260);
 }
 
 // ── Draw ─────────────────────────────────────────────────────────────────────
@@ -660,19 +665,35 @@ function drawCavity() {
   }
 }
 
-function drawPot(p, locked, hidden, pop) {
+function drawPot(p, locked, hidden, pop, tap) {
   const bw = 46, bh = 54;
   const x = cellX(p.cell[0]), y = cellY(p.cell[1]);
+  if (tap > 0) {
+    // Vòng sáng lan ra từ chính cái bình vừa chạm — nó nói "đã nhận", ở đúng chỗ ngón
+    // tay vừa rời đi.
+    const k = 1 - tap;
+    ctx.globalAlpha = tap * 0.5;
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3 * tap + 1;
+    rr(x - bw / 2 - 4 - k * 14, y - bh / 2 - 4 - k * 14, bw + 8 + k * 28, bh + 8 + k * 28, 16 + k * 8);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
   ctx.save();
   ctx.translate(x, y);
+  ctx.scale(1 + tap * 0.11, 1 + tap * 0.11);
   ctx.rotate(p.tilt * TILT_MAX);
   ctx.translate(-bw / 2, -bh / 2);
 
   // ⚠ Kính sáng có viền slate, không phải trắng mờ: bình đứng trên sàn khoang trắng,
   // và trắng mờ trên trắng thì cái bình chỉ còn là vũng nước màu lơ lửng.
-  fillRR(bw / 2 - 9, -14, 18, 20, 4, "rgba(255,255,255,0.62)");
+  // ⚠ Cổ chỉ nhô 9px, không phải 14. Ô cách nhau 62 mà thân bình cao 54, tức khe hở
+  // dọc chỉ có 8px — cổ dài 14 thò lên ĐÈ vào đáy bình hàng trên, và hai cái bình
+  // liền nhau theo chiều dọc đọc thành một cặp bị nối bằng ống. Đó chính là thứ bị
+  // nhận xét là "đường kẻ nối mỏng manh giữa các bình": không có đường nối nào cả,
+  // chỉ là cái cổ dài quá khe.
+  fillRR(bw / 2 - 9, -9, 18, 15, 4, "rgba(255,255,255,0.62)");
   ctx.strokeStyle = "rgba(96,120,160,0.5)"; ctx.lineWidth = 1.6;
-  rr(bw / 2 - 9, -14, 18, 20, 4); ctx.stroke();
+  rr(bw / 2 - 9, -9, 18, 15, 4); ctx.stroke();
   fillRR(0, 0, bw, bh, 13, hidden ? "#8d9bb4" : "rgba(255,255,255,0.62)");
 
   if (!hidden && p.units > 0) {
@@ -744,7 +765,7 @@ function drawPot(p, locked, hidden, pop) {
     }
     ctx.save();
     ctx.globalAlpha = locked ? 1 : Math.min(1, pop * 1.7);
-    ctx.translate(bw / 2 + k * 19, -11 - lift);
+    ctx.translate(bw / 2 + k * 19, -7 - lift);
     ctx.rotate(k * 2.6);
     ctx.scale(bounce, bounce);
     fillRR(-13, -7, 26, 13, 4, "#4d5876");
@@ -779,19 +800,51 @@ function drawClip(t) {
   fillRR(x - 9, y - 13, 18, 23, 5, "#ffffff");
   fillRR(x - 5, y - 7, 10, 14, 3, UI.panelDeep);
 }
-
+/**
+ * Ô chặn: một khối thép bắt bulông xuống sàn khoang.
+ *
+ * ⚠ Đổi từ thùng gỗ nâu sang thép, vì tông nâu đất là thứ DUY NHẤT trên màn hình
+ * không thuộc bảng màu nào — không phải màu bình, không phải tông máy. Nó là di sản
+ * của game cũ, nơi cả cabinet là nhựa trắng và gỗ mới là "vật liệu khác".
+ *
+ * ⚠ Nhưng vẫn phải KHÁC HẲN cái bình, không được đẹp lên thành một mảnh trang trí.
+ * Ghi chú ở `K.crate` của game cũ gọi nó là thứ duy nhất trên bàn người chơi không
+ * làm gì được, và cách nó nói điều đó là bằng chất liệu. Thép bắt bulông, đặc, không
+ * có nước bên trong, không có nắp — ba dấu hiệu ngược hẳn với mọi thứ rót được.
+ */
 function drawCrate(t) {
   const [c, r] = t.cells[0];
   const x = cellX(c) - CELL / 2, y = cellY(r) - CELL / 2;
-  fillRR(x + 1, y + 4, CELL - 2, CELL - 4, 10, "#6b4423");
-  const g = ctx.createLinearGradient(0, y, 0, y + CELL);
-  g.addColorStop(0, "#b98a52"); g.addColorStop(1, "#8d6236");
-  fillRR(x + 1, y + 1, CELL - 2, CELL - 7, 10, g);
-  ctx.strokeStyle = "#7d5430"; ctx.lineWidth = 7; ctx.lineCap = "round";
+  const s = CELL;
+  fillRR(x + 2, y + 5, s - 4, s - 5, 10, "#3f4a63");
+  const g = ctx.createLinearGradient(0, y, 0, y + s);
+  g.addColorStop(0, "#8b98b6");
+  g.addColorStop(0.55, "#6d7b9b");
+  g.addColorStop(1, "#55627e");
+  fillRR(x + 2, y + 2, s - 4, s - 8, 10, g);
+  // Nẹp chéo, chìm vào mặt thép.
+  ctx.save();
+  rr(x + 4, y + 4, s - 8, s - 12, 8); ctx.clip();
+  ctx.strokeStyle = "rgba(38,46,66,0.55)"; ctx.lineWidth = 8; ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(x + 10, y + 9); ctx.lineTo(x + CELL - 10, y + CELL - 15);
-  ctx.moveTo(x + CELL - 10, y + 9); ctx.lineTo(x + 10, y + CELL - 15);
+  ctx.moveTo(x + 6, y + 6); ctx.lineTo(x + s - 6, y + s - 12);
+  ctx.moveTo(x + s - 6, y + 6); ctx.lineTo(x + 6, y + s - 12);
   ctx.stroke();
+  ctx.strokeStyle = "rgba(190,203,228,0.35)"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + 6, y + 4); ctx.lineTo(x + s - 6, y + s - 14);
+  ctx.moveTo(x + s - 6, y + 4); ctx.lineTo(x + 6, y + s - 14);
+  ctx.stroke();
+  ctx.restore();
+  // Bốn con bulông — thứ nói "bắt chặt xuống", không phải "đang nằm đó".
+  for (const [bx, by] of [[11, 11], [s - 11, 11], [11, s - 17], [s - 11, s - 17]]) {
+    ctx.fillStyle = "rgba(30,38,56,0.5)";
+    ctx.beginPath(); ctx.arc(x + bx, y + by + 1, 3.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#c3cee6";
+    ctx.beginPath(); ctx.arc(x + bx, y + by, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#78859f";
+    ctx.beginPath(); ctx.arc(x + bx + 0.4, y + by + 0.4, 1.4, 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 /**
@@ -888,7 +941,7 @@ function drawTiles() {
     const locked = !liftable(t) && !t.pouring && !t.hidden;
     drawQueue(t);
     if (t.kind === "pair") drawClip(t);
-    for (const p of t.pots) drawPot(p, locked, t.hidden, t.pop || 0);
+    for (const p of t.pots) drawPot(p, locked, t.hidden, t.pop || 0, t.tap || 0);
   }
 }
 
@@ -1146,19 +1199,21 @@ function drawWell() {
  *   thân tô gradient NGANG (tối hai mép, sáng giữa) — đó là cái làm nó tròn;
  *   lòng chậu tối hơn thân, vì nó nằm trong bóng của chính thành chậu;
  *   vành có bề dày: nét sáng ở nửa gần, nét tối ở nửa xa;
- *   mặt nước là elip có vệt loé, không phải một đường thẳng.
- */
 /**
- * Một cái máng, vẽ như một BÌNH NHỎ — cùng họ hình với khay nước ở trên, nhỏ hơn.
+ * Một cái máng, vẽ như một bình nhỏ — cùng họ hình với khay nước ở trên.
  *
  * ⚠ **Chỉ cái NẮP mang màu.** Thân để trắng, nên thứ duy nhất có màu trên một bình
- * rỗng là cái nắp, và khi nước dâng lên thì nắp với nước cùng một màu — người chơi
- * đọc "bình này nhận màu này" ở đúng một chỗ. Tô màu cả thân thì bình rỗng và bình
- * đầy trông gần như nhau, mà phân biệt hai cái đó là toàn bộ việc phải đọc ở đây.
+ * rỗng là cái nắp, và khi nước dâng thì nắp với nước cùng một màu — người chơi đọc
+ * "bình này nhận màu này" ở đúng một chỗ.
  *
- * ⚠ Viền thân là nét SLATE trung tính, không phải màu của bình. Trong một cột bốn
- * cái, bốn viền màu cạnh nhau tranh chấp với chính bốn cái nắp — mà nắp mới là chỗ
- * đã chọn để nói màu.
+ * ⚠ Nắp là một cái CỔ ĐƯỢC LẮP VÀO, không phải nắp chai rời đặt lên trên. Bản trước
+ * là một chữ nhật bo góc thả nổi phía trên thân, và nó đọc đúng như thế: mấy cái nắp
+ * chai rơi ra. Giờ nó có vai loe rộng hơn thân, một khe tối dưới đáy nắp, và thân
+ * bình khoét lõm vào để đón — ba thứ nói cùng một câu "cái này cắm vào cái kia".
+ *
+ * ⚠ Lòng bình có bóng đổ trong và viền đậm hơn. Trắng phẳng trên nền giếng trắng thì
+ * ranh giới các ô lẫn vào nhau, và cả cột đọc thành một mảng sáng — đó là nhận xét
+ * "độ tương phản thấp", và nó đúng.
  */
 function drawTrough(x, y, t, open) {
   const p = PAL[t.color];
@@ -1166,16 +1221,27 @@ function drawTrough(x, y, t, open) {
   const bw = 56, bh = TR.h;
   const bx = x + (TR.w - bw) / 2;
 
-  // Nắp: chỗ duy nhất mang màu khi bình còn rỗng.
-  fillRR(bx + bw / 2 - 15, y - 11, 30, 12, 4, p.dark);
-  fillRR(bx + bw / 2 - 15, y - 11, 30, 5, 2.5, p.base);
-  fillRR(bx + bw / 2 - 9, y - 2, 18, 5, 2, shade(p.dark, 0.8));
+  // Bóng đổ dưới bình, để nó rời khỏi mặt giếng.
+  fillRR(bx + 1, y + 4, bw - 2, bh - 2, 12, "rgba(40,58,92,0.22)");
 
-  fillRR(bx, y + 2, bw, bh - 2, 12, "rgba(30,40,66,0.16)");
+  // Vai nắp loe rộng hơn thân, rồi khe tối, rồi mặt nắp.
+  const cw = bw - 12;
+  fillRR(bx + (bw - cw) / 2 - 2, y - 13, cw + 4, 15, 5, shade(p.dark, 0.72));
+  fillRR(bx + (bw - cw) / 2, y - 13, cw, 10, 4, p.base);
+  fillRR(bx + (bw - cw) / 2 + 3, y - 12, cw - 6, 4, 2, p.light);
+
   fillRR(bx, y, bw, bh, 12, "#fbfcff");
 
   ctx.save();
   rr(bx + 2, y + 2, bw - 4, bh - 4, 10); ctx.clip();
+  // Bóng đổ trong lòng: tối ở vai, sáng dần xuống đáy. Đây là thứ cho cái bình có
+  // CHIỀU SÂU thay vì là một ô trắng dán lên giếng.
+  const sg = ctx.createLinearGradient(0, y, 0, y + bh);
+  sg.addColorStop(0, "rgba(70,95,140,0.30)");
+  sg.addColorStop(0.35, "rgba(70,95,140,0.05)");
+  sg.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = sg;
+  ctx.fillRect(bx, y, bw, bh);
   if (lv > 0) {
     const top = y + bh - lv * (bh - 3);
     const g = ctx.createLinearGradient(0, top, 0, y + bh);
@@ -1188,18 +1254,10 @@ function drawTrough(x, y, t, open) {
   }
   ctx.restore();
 
-  ctx.strokeStyle = "rgba(96,116,152,0.65)";
-  ctx.globalAlpha = open ? 1 : 0.7;
-  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = open ? "rgba(66,86,124,0.9)" : "rgba(84,104,142,0.6)";
+  ctx.lineWidth = open ? 2.2 : 1.8;
   rr(bx, y, bw, bh, 12); ctx.stroke();
-  ctx.globalAlpha = 1;
-  // Vệt sáng mảnh trên thành trái, cùng ngôn ngữ với khay nước ở trên.
-  fillRR(bx + 7, y + 7, 3.5, bh - 18, 1.8, "rgba(255,255,255,0.8)");
-
-  // ⚠ Không vạch chia, không chữ "n/3". Mực nước tự nói nó đầy tới đâu, và cái bình
-  // chỉ có ba nấc — đủ thưa để đọc bằng mắt mà không cần thước. Vạch và chữ cộng lại
-  // là hai lớp ký hiệu chồng lên một thông tin duy nhất, trên một mảnh 64x40, nhân
-  // với mười sáu cái đang hiện cùng lúc.
+  fillRR(bx + 7, y + 7, 3.5, bh - 18, 1.8, "rgba(255,255,255,0.85)");
 }
 
 function drawTroughs() {
@@ -1209,10 +1267,21 @@ function drawTroughs() {
     const ease = slide[i] * slide[i] * (3 - 2 * slide[i]);
     const yOff = ease * (TR.h + TR.vgap);
     if (hidden > 0) {
-      ctx.fillStyle = "rgba(90,110,145,0.7)";
-      ctx.font = "700 13px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("+" + hidden, trX(i) + TR.w / 2, TR.y0 + shown * (TR.h + TR.vgap) + 12);
+      // ⚠ "+11" bị đọc thành text debug, và đúng là nó trông y hệt. Nó là SỐ BÌNH CÒN
+      // LẠI trong cột, nên vẽ một cái bình con cạnh con số thì câu hỏi "còn gì" tự
+      // trả lời, không cần biết quy ước.
+      const bxc = trX(i) + TR.w / 2 - 12;
+      const byc = TR.y0 + shown * (TR.h + TR.vgap) + 4;
+      ctx.globalAlpha = 0.75;
+      fillRR(bxc - 4, byc - 4, 8, 3, 1.5, "#6b7ea6");
+      fillRR(bxc - 6, byc, 12, 14, 3, "#eaeff9");
+      ctx.strokeStyle = "#6b7ea6"; ctx.lineWidth = 1.2;
+      rr(bxc - 6, byc, 12, 14, 3); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(70,90,130,0.95)";
+      ctx.font = "700 14px system-ui, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(String(hidden), bxc + 10, byc + 12);
     }
     for (let k = 0; k < shown; k++) {
       // ⚠ Máng chưa tới lượt chỉ mờ RẤT ít. Alpha thấp không chỉ làm nhạt cái thân —

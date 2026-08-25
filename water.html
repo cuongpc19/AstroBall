@@ -50,7 +50,7 @@
 // Toàn bộ file này độc lập: không import gì, mở thẳng bằng browser cũng chạy.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const W = 540, H = 900;
+const W = 540, H = 856;
 
 // Bảng màu lấy nguyên từ src/game/config.ts — nếu sau này ghép vào game thật thì
 // không phải chỉnh lại màu, và hai bên vẫn đọc giống nhau trên cùng một máy.
@@ -73,30 +73,41 @@ const JAR_UNITS = 9;
 const TROUGH_CAP = 3;
 const TANK_CAP = 30;
 const COLS = 4;            // số cột máng, cũng là số màu mở cùng lúc
-const DEPTH = 6;           // số máng xếp chồng trong một cột
-const JARS = (COLS * DEPTH) / (JAR_UNITS / TROUGH_CAP);   // 24 máng / 3 = 8 bình
+const DEPTH = 9;           // số máng xếp chồng trong một cột
+const TR_VISIBLE = 6;      // vẽ bấy nhiêu, phần còn lại đếm bằng badge — như BOX_VISIBLE
+const JARS = (COLS * DEPTH) / (JAR_UNITS / TROUGH_CAP);   // 36 máng / 3 = 12 bình
 
-let DRAIN_MS = 110;        // một đơn vị nước rời bồn mỗi chừng này
+// Một đơn vị nước rời bồn mỗi chừng này — nhân với 4 vòi chảy song song. 170 chứ
+// không phải 110: bồn giờ chỉ cao 84px nên một đơn vị chỉ dày 2,8px, và ở nhịp cũ
+// mực nước tụt nhanh đến mức không đọc được nó vừa rút màu nào.
+let DRAIN_MS = 170;
 // ⚠ Rót chậm là chủ ý. Cả trò chơi nằm ở thứ tự các lớp trong bồn, mà một cú rót 9
 // đơn vị trong nửa giây thì lớp mới hiện ra là đã xong — người chơi không kịp thấy
 // nó chồng lên cái gì. 150ms/đơn vị cho một bình mất khoảng 1,6 giây, đủ để đọc.
 const POUR_MS = 150;       // một đơn vị rời bình mỗi chừng này
 const POUR_LEAD = 220;     // nghiêng bao lâu trước khi giọt đầu rơi
-// ⚠ 46°, không phải 66°. Ở 66° cái bình nằm ngang hẳn, thò ra khỏi ô của nó và đè
-// lên ô bên cạnh — trên một lưới sát nhau thì nó đọc thành hai bình chồng nhau chứ
-// không thành một bình đang nghiêng. 46° vẫn thừa để thấy là đang rót.
-const TILT_MAX = 0.8;
+// ⚠ **25°, và cái trần thấp này là bắt buộc vì bình gần vuông.** Thân bình phải gần
+// vuông để vừa một ô lưới, mà một hình gần vuông xoay 45° thì thành hình THOI — mất
+// sạch dấu hiệu "cái bình", và với mặt nước nằm ngang ở đáy nó đọc thành cái phễu
+// đồng hồ cát. Đã thử 66° rồi 46°, cả hai đều hỏng đúng kiểu đó. Ở 25° hình vẫn là
+// cái bình đang chao; thứ nói "đang rót" là DÒNG NƯỚC và mực nước tụt, không phải
+// góc nghiêng.
+const TILT_MAX = 0.44;
 
 // ── Layout ───────────────────────────────────────────────────────────────────
 //
 // Lưới bình dựng đúng kiểu lưới khay của game cũ: ô vuông trên một khoang lõm, và
 // khoang đó ôm theo đúng những ô CÓ bình — nên bàn có hình thù lởm chởm chứ không
 // phải một chữ nhật đầy. Xem `drawCavity`.
-const GRID_COLS = 4, GRID_ROWS = 4, CELL = 62, PITCH = 68;
+const GRID_COLS = 6, GRID_ROWS = 6, CELL = 56, PITCH = 62;
 const GRID_X0 = (W - GRID_COLS * PITCH) / 2 + (PITCH - CELL) / 2;
-const GRID_Y0 = 92;
-const TANK = { x: 30, y: 404, w: 480, h: 186 };
-const TR = { x0: 34, y0: 640, w: 110, gap: 8, h: 34, vgap: 5 };
+const GRID_Y0 = 84;
+// ⚠ Bồn cố tình thấp — 84px cho 30 đơn vị, tức 2,8px một đơn vị. Nó không cần cao:
+// thứ duy nhất phải đọc được ở đây là ĐANG GIỮ MÀU GÌ và CÒN BAO NHIÊU CHỖ, cả hai
+// đều đọc bằng bề dày dải màu. Chiều cao dôi ra chuyển hết lên cho lưới bình, vì
+// đó mới là chỗ người chơi ra quyết định.
+const TANK = { x: 30, y: 486, w: 480, h: 84 };
+const TR = { x0: 34, y0: 606, w: 110, gap: 8, h: 32, vgap: 5 };
 
 const cellX = (c) => GRID_X0 + c * PITCH + CELL / 2;
 const cellY = (r) => GRID_Y0 + r * PITCH + CELL / 2;
@@ -105,7 +116,15 @@ const trX = (i) => TR.x0 + i * (TR.w + TR.gap);
 const spoutX = (i) => trX(i) + TR.w / 2;
 
 // ── State ────────────────────────────────────────────────────────────────────
-let jars, cells, tank, cols, streams, drops, flashes, phase, stalledFor, shake, msg, seed;
+let jars, cells, tank, cols, streams, drops, flashes, slide, phase, stalledFor, shake, msg, seed;
+
+// Máng đầy thì tan trong chừng này, và cột dưới trượt lên trong đúng ngần ấy.
+//
+// ⚠ **Chỉ là thời gian của HÌNH.** Cái máng bị gỡ khỏi `cols` ngay trong lượt rút
+// và phải giữ nguyên như thế — kéo dài việc gỡ để chờ animation chính là con bug
+// đã ghi ở `drain`: hai đơn vị nữa kịp rót vào một máng đã đầy và bàn thành không
+// giải được. Nên cái đang tan là một BÓNG MA, luật đã đi tiếp từ trước rồi.
+const CLEAR_MS = 620;
 
 function rnd() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
 
@@ -140,7 +159,19 @@ function growRegion(n) {
     const pick = edge[(rnd() * edge.length) | 0];
     taken.set(key(pick[0], pick[1]), pick);
   }
-  return [...taken.values()];
+  // ⚠ Dời khối về giữa lưới. Mọc từ một ô gốc ngẫu nhiên thì khối dạt về đâu là tuỳ
+  // ô gốc, và một bàn nằm lệch hẳn sang phải với một mảng trống to bên trái đọc
+  // thành "vẽ lỗi" chứ không thành "bàn có hình thù". Canh theo hộp bao, không phải
+  // theo trọng tâm: cái mắt bắt là khoảng trống hai bên khối, không phải khối lượng.
+  const list = [...taken.values()];
+  let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
+  for (const [c, r] of list) {
+    if (c < minC) minC = c; if (c > maxC) maxC = c;
+    if (r < minR) minR = r; if (r > maxR) maxR = r;
+  }
+  const dc = Math.round((GRID_COLS - 1 - maxC - minC) / 2);
+  const dr = Math.round((GRID_ROWS - 1 - maxR - minR) / 2);
+  return list.map(([c, r]) => [c + dc, r + dr]);
 }
 
 function newBoard(s) {
@@ -167,6 +198,7 @@ function newBoard(s) {
 
   tank = { layers: [], total: 0, wob: 0, wobPhase: 0 };
   streams = []; drops = []; flashes = [];
+  slide = new Array(COLS).fill(0);
   phase = "play"; stalledFor = 0; shake = 0; msg = "";
 }
 
@@ -184,6 +216,40 @@ function pushUnit(color) {
 
 /** Máng đang mở của cột i, hoặc null nếu cột đã cạn. */
 const active = (i) => (cols[i].length ? cols[i][0] : null);
+
+/**
+ * Ô nào còn bình. Tính lại mỗi khung hình — 12 bình thì rẻ, và nó phải luôn khớp
+ * với cái đang vẽ, vì hình dạng bàn thay đổi ngay khi một bình rót cạn.
+ */
+function occupancy() {
+  const s = new Set();
+  for (const j of jars) if (!j.gone) s.add(j.col + "," + j.row);
+  return s;
+}
+
+/**
+ * Bình có rót được không — port thẳng `canEscape` trong src/game/logic.ts:
+ *
+ *   hàng đáy luôn được: nó nằm trên miệng phễu, rót thẳng xuống chứ không phải
+ *   lách ngang trước;
+ *   còn lại cần ÍT NHẤT MỘT ô kề trực giao đang TRỐNG.
+ *
+ * ⚠ **Mép bàn không tính là lối ra** (trừ hàng đáy). Đây không phải chi tiết vụn:
+ * cái khoang được vẽ hở xuống dưới và bịt kín ba phía còn lại, nên một bình ở hàng
+ * trên bị kẹp ba mặt là bị nhốt, dù nó đứng sát mép. Coi mép là lối ra thì mọi ô
+ * rìa được rót miễn phí, và bốn góc của một khối đặc sẽ mở ra trong khi nhìn rõ
+ * ràng là chúng không đi đâu được. Ghi chú trong logic.ts nói đúng chuyện này.
+ */
+function liftable(j, occ) {
+  if (j.gone || j.pouring) return false;
+  if (j.row === GRID_ROWS - 1) return true;
+  for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const c = j.col + dc, r = j.row + dr;
+    if (c < 0 || r < 0 || c >= GRID_COLS || r >= GRID_ROWS) continue;
+    if (!occ.has(c + "," + r)) return true;
+  }
+  return false;
+}
 
 /**
  * Bốc một đơn vị ra khỏi lớp `i`. Lớp cạn thì bỏ đi, và hai lớp vừa chạm nhau mà
@@ -236,7 +302,11 @@ function drain() {
     // một màu tụt xuống dưới tổng sức chứa máng màu đó, và bàn thành KHÔNG THỂ giải.
     // Bot demo đâm vào đúng chỗ đó ở lần chạy đầu. Hiệu ứng loé tách ra thành
     // `flashes` vì nó là hình, không phải luật.
-    if (t.filled >= TROUGH_CAP) { flashes.push({ col: i, color: t.color, t: 1 }); cols[i].shift(); }
+    if (t.filled >= TROUGH_CAP) {
+      flashes.push({ col: i, color: t.color, t: 1 });
+      slide[i] = 1;
+      cols[i].shift();
+    }
     moved = true;
   }
   return moved;
@@ -244,13 +314,29 @@ function drain() {
 
 function tapJar(j) {
   if (phase !== "play" || j.gone || j.pouring) return;
+  // ⚠ Cùng một `liftable` mà hình vẽ đang dùng. Bình bị nhốt được vẽ có nắp; nếu
+  // chỗ này dùng điều kiện khác thì cái nắp là lời nói dối — đúng cái bẫy mà ghi
+  // chú trong logic.ts cảnh báo ("anything that refuses a tap has to press them
+  // flat or the picture is lying").
+  if (!liftable(j, occupancy())) return;
   j.pouring = true; j.poured = 0; j.pourT = 0;
 }
 
-/** Miệng bình, sau khi nghiêng — dòng nước phải chảy ra từ đây chứ không từ tâm. */
+/**
+ * Chỗ nước tràn qua vành: **góc trên-phải của thân bình**, sau khi xoay.
+ *
+ * ⚠ Không phải một điểm thẳng trên đỉnh bình. Nghiêng theo chiều kim đồng hồ thì
+ * đầu phải của vành là chỗ THẤP NHẤT của miệng — nước tràn ở đó. Lấy điểm giữa đỉnh
+ * thì dòng nước rơi từ một chỗ cách vành cả chục pixel, và cú rót đọc thành cái bình
+ * đứng cạnh một dòng nước không dính gì tới nó.
+ */
 function mouthOf(j) {
   const a = j.tilt * TILT_MAX;
-  return { x: j.cx + Math.sin(a) * 42, y: j.cy - Math.cos(a) * 42 };
+  const hx = 23, hy = 27 - 4;   // nửa thân, thụt vào 4px cho khớp vành
+  return {
+    x: j.cx + hx * Math.cos(a) + hy * Math.sin(a),
+    y: j.cy + hx * Math.sin(a) - hy * Math.cos(a),
+  };
 }
 
 // ── Loop ─────────────────────────────────────────────────────────────────────
@@ -296,8 +382,9 @@ function step(now, dt) {
   streams = streams.filter((s) => s.t < 1);
   for (const d of drops) d.t += dt / 200;
   drops = drops.filter((d) => d.t < 1);
-  for (const f of flashes) f.t -= dt / 300;
+  for (const f of flashes) f.t -= dt / CLEAR_MS;
   flashes = flashes.filter((f) => f.t > 0);
+  for (let i = 0; i < COLS; i++) slide[i] = Math.max(0, slide[i] - dt / CLEAR_MS);
 }
 
 // ── Draw ─────────────────────────────────────────────────────────────────────
@@ -341,6 +428,7 @@ function waterTop(x, w, y, amp, ph) {
  * xoá đi.
  */
 function fillCells(inset, radius, style) {
+  const has = new Set(cells.map(([c, r]) => c + "," + r));
   ctx.beginPath();
   for (const [c, r] of cells) {
     const x = cellX(c) - CELL / 2 - inset, y = cellY(r) - CELL / 2 - inset;
@@ -352,6 +440,17 @@ function fillCells(inset, radius, style) {
     ctx.arcTo(x, y + h, x, y, k);
     ctx.arcTo(x, y, x + w, y, k);
     ctx.closePath();
+  }
+  // ⚠ **Cầu nối giữa hai ô kề nhau, nếu không thì chỗ bốn ô gặp nhau thủng một lỗ
+  // hình thoi.** Bốn góc bo của bốn ô cong ra xa nhau, và cái nền tối lọt qua đúng
+  // giữa khoang — thấy rõ trên ảnh chụp lưới 6x6 đầu tiên. Hạ bán kính bo xuống
+  // dưới bề rộng khe thì hết lỗ, nhưng viền ngoài cũng vuông theo, mà cái viền bo
+  // mới là thứ làm nên dáng bàn. Vá bằng cầu nối rẻ hơn và không đổi dáng.
+  for (const [c, r] of cells) {
+    const x = cellX(c) - CELL / 2, y = cellY(r) - CELL / 2;
+    const gap = PITCH - CELL;
+    if (has.has(c + 1 + "," + r)) ctx.rect(x + CELL - 2, y - inset - 3, gap + 4, CELL + inset * 2 + 6);
+    if (has.has(c + "," + (r + 1))) ctx.rect(x - inset - 3, y + CELL - 2, CELL + inset * 2 + 6, gap + 4);
   }
   ctx.fillStyle = style;
   ctx.fill();
@@ -370,10 +469,16 @@ function drawCavity() {
   }
 }
 
-function drawJar(j) {
+function drawJar(j, occ) {
   if (j.gone) return;
   const p = PAL[j.color];
-  const bw = 50, bh = 60;
+  const bw = 46, bh = 54;
+  // ⚠ **Bình bị nhốt phải nhìn ra được, không chỉ là bấm không ăn.** Trong game cũ
+  // việc này do trứng nổi-hay-lép làm, và ghi chú ở `liftable` gọi đó là "lời hứa
+  // của bàn cờ rằng khay này sẽ đi được". Bình thì không có trứng, nên lời hứa
+  // chuyển sang cái NẮP: có nắp là chưa rót được. Nắp chứ không phải làm mờ — mờ
+  // đọc thành "ô bị hỏng", còn nắp đọc thành "đang đậy, mở sau".
+  const locked = !liftable(j, occ) && !j.pouring;
   ctx.save();
   ctx.translate(j.cx, j.cy);
   // ⚠ Cùng một `TILT_MAX` với `mouthOf` và với phép xoay ngược của mặt nước bên
@@ -418,10 +523,22 @@ function drawJar(j) {
     ctx.restore();
   }
 
-  ctx.strokeStyle = "rgba(88,112,155,0.6)"; ctx.lineWidth = 2;
+  ctx.strokeStyle = locked ? "rgba(70,90,124,0.75)" : "rgba(88,112,155,0.6)";
+  ctx.lineWidth = 2;
   rr(0, 0, bw, bh, 13); ctx.stroke();
   ctx.fillStyle = "rgba(255,255,255,0.5)";
-  rr(7, 9, 5, bh - 22, 2.5); ctx.fill();
+  rr(7, 8, 5, bh - 20, 2.5); ctx.fill();
+
+  if (locked) {
+    // Nắp chụp lên cổ, rộng hơn cổ để nó đọc thành cái vặn vào chứ không phải một
+    // khúc cổ màu khác.
+    ctx.fillStyle = "#69769a";
+    rr(bw / 2 - 13, -18, 26, 13, 4); ctx.fill();
+    ctx.fillStyle = "#8f9cbd";
+    rr(bw / 2 - 13, -18, 26, 6, 3); ctx.fill();
+    ctx.fillStyle = "rgba(46,58,84,0.28)";
+    rr(2, 2, bw - 4, bh - 4, 11); ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -534,9 +651,25 @@ function drawTank() {
 
 function drawTroughs() {
   for (let i = 0; i < COLS; i++) {
-    for (let k = 0; k < cols[i].length; k++) {
+    // Vẽ TR_VISIBLE cái đầu rồi đếm phần còn lại — cột sâu 9 máng mà vẽ hết thì cao
+    // hơn cả lưới bình. Game cũ làm đúng thế với BOX_VISIBLE.
+    const shown = Math.min(TR_VISIBLE, cols[i].length);
+    const hidden = cols[i].length - shown;
+    if (hidden > 0) {
+      const y = TR.y0 + shown * (TR.h + TR.vgap);
+      ctx.fillStyle = "rgba(160,190,230,0.5)";
+      ctx.font = "700 13px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("+" + hidden, trX(i) + TR.w / 2, y + 12);
+    }
+    // Cột trượt lên chỗ vừa trống. Vẽ nó còn thấp hơn đích một khoảng đúng bằng một
+    // ngăn rồi cho về 0 — nên mắt thấy cả cột dâng lên, thay vì cái máng kế tiếp
+    // nhảy cóc vào chỗ cũ trong một khung hình.
+    const ease = slide[i] * slide[i] * (3 - 2 * slide[i]);   // smoothstep
+    const yOff = ease * (TR.h + TR.vgap);
+    for (let k = 0; k < shown; k++) {
       const t = cols[i][k];
-      const x = trX(i), y = TR.y0 + k * (TR.h + TR.vgap);
+      const x = trX(i), y = TR.y0 + k * (TR.h + TR.vgap) + yOff;
       const p = PAL[t.color];
       const open = k === 0;
 
@@ -574,9 +707,21 @@ function drawTroughs() {
       ctx.globalAlpha = 1;
     }
   }
+  // Bóng ma của cái máng vừa đầy: nở ra một chút rồi tan. Vẽ SAU cả lưới máng nên
+  // nó nằm trên cái đang trượt lên — đó là điều muốn thấy, cái cũ tan ra để lộ cái
+  // mới bên dưới.
   for (const f of flashes) {
-    ctx.fillStyle = "rgba(255,255,255," + f.t * 0.85 + ")";
-    rr(trX(f.col), TR.y0, TR.w, TR.h, 9); ctx.fill();
+    const p = PAL[f.color];
+    const grow = (1 - f.t) * 5;
+    const x = trX(f.col) - grow, y = TR.y0 - grow;
+    const w = TR.w + grow * 2, h = TR.h + grow * 2;
+    ctx.globalAlpha = f.t * f.t;
+    ctx.fillStyle = p.base;
+    rr(x, y, w, h, 9 + grow); ctx.fill();
+    ctx.globalAlpha = f.t * f.t * 0.9;
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    rr(x, y, w, h, 9 + grow); ctx.fill();
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -622,8 +767,9 @@ function draw() {
   ctx.fillStyle = "rgba(255,255,255,0.55)";
   ctx.fillText(DEMO ? "demo — thắng " + tally.win + " / thua " + tally.lose : "R = bàn mới", W - 30, 42);
 
+  const occ = occupancy();
   drawCavity();
-  for (const j of jars) drawJar(j);
+  for (const j of jars) drawJar(j, occ);
   for (const j of jars) drawPourStream(j);
   drawTank();
   drawTroughs();
@@ -681,7 +827,10 @@ function bot(now) {
   // Không có thì rót đại một bình bất kỳ: bồn còn chỗ, và nước nằm chờ được.
   const open = new Set();
   for (let i = 0; i < COLS; i++) { const a = active(i); if (a) open.add(a.color); }
-  const left = jars.filter((j) => !j.gone);
+  // Chỉ xét bình rót được — bàn giờ có bình bị nhốt, và bot bấm vào chúng thì
+  // `tapJar` lặng lẽ bỏ qua, nên nó sẽ đứng im tưởng như treo.
+  const occ = occupancy();
+  const left = jars.filter((j) => liftable(j, occ));
   const pick = left.find((j) => open.has(j.color)) ?? left[0];
   if (pick) { botAt = now; tapJar(pick); }
 }

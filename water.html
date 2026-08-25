@@ -80,10 +80,10 @@ const NAMES = Object.keys(PAL);
 // để nó chạy liền mạch xuống dưới. Tô slate cả khoang thì bàn thành miếng dán tối
 // trên hộp trắng; tô slate cả thân tủ thì cái vỏ đọc thành cái lỗ.
 const UI = {
-  machine: "#dfe6f5", machineEdge: "#a9b6d6",
-  panel: "#f4f7fd", panelDeep: "#9fb0cb",
-  chrome: "#f3f6fc", beltDeep: "#565d6b",
-  ink: "#2b3550",
+  machine: "#f0dfba", machineEdge: "#cfa76e",
+  panel: "#fbf2df", panelDeep: "#d2ab74",
+  chrome: "#f7efdc", beltDeep: "#8a6a44",
+  ink: "#5b4327",
 };
 
 // ⚠ Tỉ lệ 9:3 buộc mỗi bình phải có ĐÚNG 3 máng cùng màu. Tổng nước màu C là (số
@@ -201,6 +201,7 @@ let pipe = { on: 0, color: "cyan" };
 let sparks = [];
 // Chai đã đầy đang bay lên kệ, và số thứ tự ô kệ tiếp theo.
 let shelved = [], shelfN = 0;
+let totalBoxes = 0;
 
 // ⚠ Không còn hàm ngẫu nhiên nào trong file này, và đó là chủ ý. Bàn đọc thẳng từ
 // blueprint — cùng level là cùng bàn, mọi lần, trên mọi máy. Thêm lại một `Math.
@@ -293,6 +294,8 @@ function buildLevel(lv) {
   // ra một bàn KHÁC, chỉ giống ở phần nhìn thấy được. Mỗi phần tử là MỘT box 3 chỗ,
   // và tổng của chúng khớp đúng số khay x 3.
   cols = bp.columns.map((col) => col.map((ci) => ({ color: colorOf(ci), filled: 0 })));
+  // Tổng số chai phải làm đầy — mẫu số của thanh tiến độ trên HUD.
+  totalBoxes = cols.reduce((n, c) => n + c.length, 0);
 
   tank = { layers: [], total: 0, wob: 0, wobPhase: 0 };
   streams = []; drops = []; flashes = []; sparks = []; shelved = []; shelfN = 0;
@@ -997,17 +1000,20 @@ function drawRacks() {
   const top = MACH.y + 34, bot = TANK.y - 34;
   for (const side of [0, 1]) {
     const x = side ? MACH.x + MACH.w - 76 : MACH.x + 12;
-    ctx.globalAlpha = 0.5;
-    fillRR(x - 2, top - 8, 68, bot - top + 10, 10, "rgba(160,178,210,0.18)");
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.55;
+    fillRR(x - 4, top - 10, 72, bot - top + 14, 8, "#8a5b30");
+    fillRR(x - 1, top - 7, 66, bot - top + 8, 6, "#a97544");
+    ctx.globalAlpha = 0.42;
     let n = side * 3;
     for (let sy = top; sy + 40 < bot; sy += 54) {
       shelfBottle(x + 16, sy + 6, NAMES[n++ % 8]);
       shelfBottle(x + 46, sy + 6, NAMES[n++ % 8]);
       // Mặt kệ, và một vạch tối mỏng dưới nó cho có bề dày.
-      ctx.globalAlpha = 0.4;
-      fillRR(x - 1, sy + 32, 66, 4, 2, UI.machineEdge);
-      fillRR(x - 1, sy + 36, 66, 2, 1, "rgba(90,110,150,0.5)");
+      // Mặt kệ gỗ, có cạnh sáng ở trên và bóng ở dưới.
+      ctx.globalAlpha = 0.55;
+      fillRR(x - 4, sy + 31, 72, 6, 2, "#c08a4e");
+      fillRR(x - 4, sy + 31, 72, 2, 1, "#dcae76");
+      fillRR(x - 4, sy + 37, 72, 3, 1.5, "#6d451f");
       ctx.globalAlpha = 1;
     }
   }
@@ -1092,7 +1098,7 @@ function drawCavity() {
     const x0 = cellX(e.min) - CELL / 2 + 1;
     const x1 = cellX(e.max) + CELL / 2 - 1;
     const y = cellY(r) + CELL / 2 - 5;
-    fillRR(x0, y, x1 - x0, 5, 2.5, "rgba(140,160,196,0.34)");
+    fillRR(x0, y, x1 - x0, 5, 2.5, "rgba(190,156,104,0.42)");
     fillRR(x0, y, x1 - x0, 2, 1, "rgba(255,255,255,0.85)");
   }
 }
@@ -1120,7 +1126,7 @@ function drawPot(p, locked, hidden, pop, tap, nope) {
   }
   // Bóng đổ mềm dưới đáy chai — thứ đặt nó ĐỨNG TRÊN sàn khoang thay vì trôi trên đó.
   ctx.globalAlpha = 0.16;
-  ctx.fillStyle = "#33406a";
+  ctx.fillStyle = "#7a5a30";
   ctx.beginPath(); ctx.ellipse(x + 1, y + bh / 2 - 1, bw * 0.36, 5, 0, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1;
 
@@ -1141,9 +1147,14 @@ function drawPot(p, locked, hidden, pop, tap, nope) {
   //
   // Cổ chỉ nhô 9px: ô cách nhau 62 mà thân cao 54, khe dọc chỉ 8px — cổ dài hơn thế
   // là thò lên đè vào đáy chai hàng trên, và hai cái đọc thành một cặp bị nối ống.
-  fillRR(bw / 2 - 9, -9, 18, 14, 4, "rgba(255,255,255,0.72)");
-  ctx.strokeStyle = "rgba(96,120,160,0.5)"; ctx.lineWidth = 1.6;
-  rr(bw / 2 - 9, -9, 18, 14, 4); ctx.stroke();
+  // ⚠ Nút BẦN, không phải cổ thuỷ tinh trắng. Chai trên đã nói màu bằng chính chất
+  // lỏng nhìn xuyên qua, nên cái nút được rảnh tay để làm chất liệu — và một nút bần
+  // nâu là thứ kéo cả cụm ra khỏi tông "thiết bị" sang tông "lọ thuốc". Chai dưới thì
+  // ngược lại: lúc rỗng nó không có gì nói màu ngoài cái nắp, nên nắp ở đó phải giữ màu.
+  fillRR(bw / 2 - 9, -10, 18, 15, 4, "#c08a4e");
+  fillRR(bw / 2 - 9, -10, 18, 6, 3, "#d9a469");
+  ctx.strokeStyle = "rgba(120,80,38,0.55)"; ctx.lineWidth = 1.6;
+  rr(bw / 2 - 9, -10, 18, 15, 4); ctx.stroke();
   // ⚠ Chai ẩn vẫn là CÁI CHAI, chỉ là chưa biết màu — thân trắng như mọi chai khác,
   // lòng phủ một lớp kính mờ. Tô đặc một khối xám thì nó đọc thành viên gạch chặn
   // đường, tức là nhầm sang loại vật khác hẳn: người chơi tưởng nó là vật cản chứ
@@ -1153,7 +1164,7 @@ function drawPot(p, locked, hidden, pop, tap, nope) {
   ctx.fill();
   if (hidden) {
     bottlePath(3, 3, bw - 6, bh - 6);
-    ctx.fillStyle = "#c3cddf"; ctx.fill();
+    ctx.fillStyle = "#e2d3b4"; ctx.fill();
   }
 
   if (!hidden && p.units > 0) {
@@ -1179,13 +1190,13 @@ function drawPot(p, locked, hidden, pop, tap, nope) {
 
   // Viền dày lên 2 -> 2.7: tài liệu đề nghị +20–35%, và nó là thứ tách chai khỏi sàn
   // khoang trắng mà không phải thêm bóng.
-  ctx.strokeStyle = locked ? "rgba(70,90,124,0.8)" : "rgba(84,108,152,0.72)";
+  ctx.strokeStyle = locked ? "rgba(120,86,46,0.8)" : "rgba(150,110,66,0.75)";
   ctx.lineWidth = 2.7;
   bottlePath(0, 0, bw, bh); ctx.stroke();
   fillRR(7, 8, 5, bh - 20, 2.5, "rgba(255,255,255,0.5)");
 
   if (hidden) {
-    ctx.fillStyle = "#eef3fb";
+    ctx.fillStyle = "#fdf6e6";
     ctx.font = "700 30px system-ui, sans-serif";
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText("?", bw / 2, bh / 2);
@@ -1230,8 +1241,8 @@ function drawPot(p, locked, hidden, pop, tap, nope) {
     ctx.translate(bw / 2 + k * 19, -7 - lift);
     ctx.rotate(k * 2.6);
     ctx.scale(bounce, bounce);
-    fillRR(-13, -7, 26, 13, 4, "#4d5876");
-    fillRR(-13, -7, 26, 6, 3, "#6f7c9e");
+    fillRR(-13, -7, 26, 13, 4, "#5f4426");
+    fillRR(-13, -7, 26, 6, 3, "#8a6538");
     // Mặt dưới nắp: chỉ thấy được khi nó đã lộn, và chính nó nói cho mắt biết là
     // đang nhìn một vật thể lật chứ không phải một hình phẳng trôi đi.
     ctx.globalAlpha *= Math.max(0, Math.sin(k * 2.6) );
@@ -1242,7 +1253,7 @@ function drawPot(p, locked, hidden, pop, tap, nope) {
     // xám — vẫn đọc là chưa mở được.
     ctx.globalAlpha = locked ? 1 : pop;
     bottlePath(2, 2, bw - 4, bh - 4);
-    ctx.fillStyle = "rgba(46,58,84,0.28)"; ctx.fill();
+    ctx.fillStyle = "rgba(86,64,34,0.30)"; ctx.fill();
     ctx.globalAlpha = 1;
     if (!locked) {
       // Một loé trắng trên thân, để "vừa mở được" bắt được mắt kể cả khi người chơi
@@ -1280,11 +1291,11 @@ function drawCrate(t) {
   const [c, r] = t.cells[0];
   const x = cellX(c) - CELL / 2, y = cellY(r) - CELL / 2;
   const s = CELL;
-  fillRR(x + 2, y + 5, s - 4, s - 5, 10, "#3f4a63");
+  fillRR(x + 2, y + 5, s - 4, s - 5, 10, "#463522");
   const g = ctx.createLinearGradient(0, y, 0, y + s);
-  g.addColorStop(0, "#8b98b6");
-  g.addColorStop(0.55, "#6d7b9b");
-  g.addColorStop(1, "#55627e");
+  g.addColorStop(0, "#9c8465");
+  g.addColorStop(0.55, "#7b6446");
+  g.addColorStop(1, "#5f4a30");
   fillRR(x + 2, y + 2, s - 4, s - 8, 10, g);
   // Nẹp chéo, chìm vào mặt thép.
   ctx.save();
@@ -1304,7 +1315,7 @@ function drawCrate(t) {
   for (const [bx, by] of [[11, 11], [s - 11, 11], [11, s - 17], [s - 11, s - 17]]) {
     ctx.fillStyle = "rgba(30,38,56,0.5)";
     ctx.beginPath(); ctx.arc(x + bx, y + by + 1, 3.4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#c3cee6";
+    ctx.fillStyle = "#e0cba4";
     ctx.beginPath(); ctx.arc(x + bx, y + by, 3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#78859f";
     ctx.beginPath(); ctx.arc(x + bx + 0.4, y + by + 0.4, 1.4, 0, Math.PI * 2); ctx.fill();
@@ -1334,8 +1345,8 @@ function drawQueue(t) {
     const bw = 46 - i * 5, bh = 54 - i * 5;
     const oy = y - 2 - i * 9;
     ctx.globalAlpha = 0.9 - i * 0.2;
-    fillRR(x - bw / 2, oy - bh / 2, bw, bh, 11, "#f2f5fc");
-    ctx.strokeStyle = "rgba(96,116,152,0.55)"; ctx.lineWidth = 1.4;
+    fillRR(x - bw / 2, oy - bh / 2, bw, bh, 11, "#f8eeda");
+    ctx.strokeStyle = "rgba(160,120,72,0.55)"; ctx.lineWidth = 1.4;
     rr(x - bw / 2, oy - bh / 2, bw, bh, 11); ctx.stroke();
     ctx.globalAlpha = 1;
   }
@@ -1474,24 +1485,27 @@ function drawTank() {
   const unit = h / TANK_CAP;
   const cx = x + w / 2;
 
-  // Chân đế.
-  fillRR(x - 16, y + h + 2, w + 32, 16, 6, "#7d90b4");
-  fillRR(x - 13, y + h - 2, w + 26, 14, 5, UI.machineEdge);
+  // Chân đế đồng thau.
+  fillRR(x - 17, y + h + 2, w + 34, 18, 7, "#8a5f13");
+  fillRR(x - 17, y + h - 2, w + 34, 18, 7, "#a9761c");
+  fillRR(x - 13, y + h + 1, w + 26, 5, 2.5, "#e8b845");
 
-  // Cổ và nắp vòm.
-  fillRR(cx - 15, y - 26, 30, 22, 7, UI.machineEdge);
-  fillRR(cx - 12, y - 24, 24, 18, 6, "#eef3fb");
-  fillRR(cx - 19, y - 32, 38, 12, 5, "#7d90b4");
-  fillRR(cx - 19, y - 34, 38, 12, 5, UI.chrome);
+  // Cổ và nắp đồng thau — cùng kim loại với đai ống, nên cái bồn và đường ống đọc
+  // thành một bộ thiết bị chứ không phải hai món rời.
+  fillRR(cx - 15, y - 26, 30, 22, 7, "#a9761c");
+  fillRR(cx - 12, y - 24, 24, 18, 6, "#e8b845");
+  fillRR(cx - 21, y - 34, 42, 14, 6, "#a9761c");
+  fillRR(cx - 21, y - 36, 42, 14, 6, "#e8b845");
+  fillRR(cx - 17, y - 33, 34, 4, 2, "#f8dd93");
 
   // Thân: khung chrome rồi kính.
   fillRR(x - 7, y - 5, w + 14, h + 12, 20, UI.machineEdge);
   fillRR(x - 7, y - 7, w + 14, h + 12, 20, UI.chrome);
   fillRR(x - 3, y - 3, w + 6, h + 6, 16, UI.beltDeep);
   const tg = ctx.createLinearGradient(x, 0, x + w, 0);
-  tg.addColorStop(0, "#c6d3e8");
-  tg.addColorStop(0.42, "#f2f6fc");
-  tg.addColorStop(1, "#fbfdff");
+  tg.addColorStop(0, "#dcbb85");
+  tg.addColorStop(0.42, "#fbf3e2");
+  tg.addColorStop(1, "#fffaf0");
   fillRR(x, y, w, h, 13, tg);
 
   ctx.save();
@@ -1521,14 +1535,14 @@ function drawTank() {
   ctx.fillStyle = "rgba(255,60,60,0.10)";
   ctx.fillRect(x, y, w, unit * (TANK_CAP - WARN_AT));
   ctx.restore();
-  ctx.strokeStyle = "rgba(120,140,175,0.55)"; ctx.lineWidth = 1.4;
+  ctx.strokeStyle = "rgba(180,146,96,0.55)"; ctx.lineWidth = 1.4;
   rr(x, y, w, h, 13); ctx.stroke();
 
   // ── Ống thuỷ, chạy dọc bên hông phải ──────────────────────────────────────
   const frac = Math.min(1, tank.total / TANK_CAP);
   const gx = x + w + 6, gw = 11, gy = y + 10, gh = h - 20;
   fillRR(gx - 2, gy - 6, gw + 4, gh + 12, 7, UI.machineEdge);
-  fillRR(gx, gy, gw, gh, 5, "rgba(40,60,95,0.18)");
+  fillRR(gx, gy, gw, gh, 5, "rgba(120,90,50,0.20)");
   const wy = gy + gh - (WARN_AT / TANK_CAP) * gh;
   ctx.fillStyle = "rgba(190,60,60,0.7)";
   ctx.fillRect(gx - 3, wy - 0.5, gw + 6, 1.8);
@@ -1588,7 +1602,7 @@ function drawPipes() {
   const act = Math.min(1, pipe.on * 2.2);
   const glow = PAL[pipe.color];
   ctx.lineCap = "round"; ctx.lineJoin = "round";
-  for (const [wgt, col] of [[19, "#8ea3c4"], [15, UI.machineEdge], [9, "#eef3fb"]]) {
+  for (const [wgt, col] of [[19, "#c9a06a"], [15, UI.machineEdge], [9, "#fdf6e6"]]) {
     ctx.strokeStyle = col; ctx.lineWidth = wgt;
     path(); ctx.stroke();
   }
@@ -1624,9 +1638,12 @@ function drawPipes() {
   }
 
   // Khớp nối: hai đai trên đoạn đứng, một mặt bích chỗ trổ khỏi bồn.
+  // Đai ống bằng đồng thau — nhấn kim loại DUY NHẤT trên màn hình, nên nó tự đánh dấu
+  // các khớp nối mà không cần thêm đường nét nào.
   const collar = (cx, cy, w, h) => {
-    fillRR(cx - w / 2, cy - h / 2, w, h, 3, "#7d90b4");
-    fillRR(cx - w / 2 + 1.5, cy - h / 2 + 1.5, w - 3, h - 3, 2.5, "#dbe3f2");
+    fillRR(cx - w / 2, cy - h / 2, w, h, 3, "#a9761c");
+    fillRR(cx - w / 2 + 1.5, cy - h / 2 + 1.5, w - 3, h - 3, 2.5, "#e8b845");
+    fillRR(cx - w / 2 + 2.5, cy - h / 2 + 2.5, w - 5, 2, 1, "#f8dd93");
   };
   collar(px, yBot - (yBot - yTop) * 0.34, 26, 11);
   collar(px, yBot - (yBot - yTop) * 0.66, 26, 11);
@@ -1634,9 +1651,9 @@ function drawPipes() {
 
   // Van tay vặn, ngay trên chỗ ống rời bồn.
   const vx = px, vy = yBot - (yBot - yTop) * 0.13;
-  fillRR(vx - 13, vy - 9, 26, 18, 5, "#7d90b4");
-  fillRR(vx - 11, vy - 7, 22, 14, 4, "#e7edf8");
-  ctx.strokeStyle = "#7d90b4"; ctx.lineWidth = 4; ctx.lineCap = "round";
+  fillRR(vx - 13, vy - 9, 26, 18, 5, "#b0864f");
+  fillRR(vx - 11, vy - 7, 22, 14, 4, "#f6ead2");
+  ctx.strokeStyle = "#b0864f"; ctx.lineWidth = 4; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(vx, vy); ctx.lineTo(vx + 17, vy - 9); ctx.stroke();
   ctx.fillStyle = "#c0392b";
   ctx.beginPath(); ctx.arc(vx + 19, vy - 10, 5, 0, Math.PI * 2); ctx.fill();
@@ -1644,14 +1661,14 @@ function drawPipes() {
   // ── Thanh phân phối ───────────────────────────────────────────────────────
   // ⚠ Bo tròn hẳn hai đầu (bán kính = nửa chiều cao) và viền dày: một thanh bo 10 với
   // nét mảnh là thanh kim loại kỹ thuật, cùng hình đó bo hết cỡ là một món đồ chơi.
-  fillRR(MANI.x, MANI.y + 5, MANI.w, MANI.h, MANI.h / 2, "#8ea3c4");
+  fillRR(MANI.x, MANI.y + 5, MANI.w, MANI.h, MANI.h / 2, "#c9a06a");
   const mg = ctx.createLinearGradient(0, MANI.y, 0, MANI.y + MANI.h);
-  mg.addColorStop(0, "#fdfeff");
-  mg.addColorStop(0.55, "#dfe7f5");
-  mg.addColorStop(1, "#c3cee2");
+  mg.addColorStop(0, "#fffaf0");
+  mg.addColorStop(0.55, "#ecd9b4");
+  mg.addColorStop(1, "#d9b47e");
   fillRR(MANI.x, MANI.y, MANI.w, MANI.h, MANI.h / 2, mg);
   fillRR(MANI.x + 9, MANI.y + 4, MANI.w - 18, 6, 3, "rgba(255,255,255,0.95)");
-  ctx.strokeStyle = "#8ea3c4"; ctx.lineWidth = 2;
+  ctx.strokeStyle = "#c9a06a"; ctx.lineWidth = 2;
   rr(MANI.x, MANI.y, MANI.w, MANI.h, MANI.h / 2); ctx.stroke();
   if (pipe.on > 0) {
     const a2 = Math.min(1, pipe.on * 2.2);
@@ -1679,7 +1696,7 @@ function drawPipes() {
   // Vòng đai chia khoang — thanh trơn dài 350px đọc thành một cái gạch.
   for (let i = 1; i < COLS; i++) {
     const cx = (spoutX(i - 1) + spoutX(i)) / 2;
-    fillRR(cx - 5, MANI.y - 1, 10, MANI.h + 2, 5, "#aebbd4");
+    fillRR(cx - 5, MANI.y - 1, 10, MANI.h + 2, 5, "#c2984f");
   }
 
   // Đầu rót trên mỗi cột: phễu thu nhỏ dần rồi tới miệng vòi.
@@ -1691,10 +1708,10 @@ function drawPipes() {
     ctx.beginPath();
     ctx.ellipse(sx, sy + 2, 12, 9, 0, 0, Math.PI);
     ctx.closePath();
-    ctx.fillStyle = "#dae3f2"; ctx.fill();
-    ctx.strokeStyle = "#8ea3c4"; ctx.lineWidth = 2; ctx.stroke();
-    fillRR(sx - 6, sy + 8, 12, 9, 4.5, "#8ea3c4");
-    fillRR(sx - 4, sy + 9, 8, 6, 3, "#5f7196");
+    ctx.fillStyle = "#ecd9b4"; ctx.fill();
+    ctx.strokeStyle = "#c9a06a"; ctx.lineWidth = 2; ctx.stroke();
+    fillRR(sx - 6, sy + 8, 12, 9, 4.5, "#c9a06a");
+    fillRR(sx - 4, sy + 9, 8, 6, 3, "#8a6633");
   }
 }
 
@@ -1801,14 +1818,14 @@ function drawWell() {
   const hgt = TR_CUT + 30 - top;
   const x = MANI.x - 6, w = MANI.w + 12;
   // Bóng đổ mềm dưới đáy — thứ nhấc cả cụm ra khỏi mặt tủ.
-  fillRR(x + 4, top + 4, w - 8, hgt + 4, 40, "rgba(86,104,142,0.20)");
-  fillRR(x, top - 8, w, hgt + 8, 40, "#8ea3c4");
-  fillRR(x + 5, top - 3, w - 10, hgt - 2, 36, "#fbf7f0");
+  fillRR(x + 4, top + 4, w - 8, hgt + 4, 40, "rgba(140,102,58,0.22)");
+  fillRR(x, top - 8, w, hgt + 8, 40, "#c9a06a");
+  fillRR(x + 5, top - 3, w - 10, hgt - 2, 36, "#fdf5e4");
   for (let i = 0; i < COLS; i++) {
     // Khe cột: hốc bo tròn hẳn, có viền trong mảnh — đọc thành chỗ ĐẶT chai, không
     // thành một ô kẻ.
-    fillRR(trX(i) - 4, top + 6, TR.w + 8, hgt - 20, 22, "rgba(150,170,205,0.20)");
-    ctx.strokeStyle = "rgba(142,163,196,0.45)"; ctx.lineWidth = 1.6;
+    fillRR(trX(i) - 4, top + 6, TR.w + 8, hgt - 20, 22, "rgba(196,164,112,0.20)");
+    ctx.strokeStyle = "rgba(196,164,112,0.5)"; ctx.lineWidth = 1.6;
     rr(trX(i) - 4, top + 6, TR.w + 8, hgt - 20, 22); ctx.stroke();
   }
 }
@@ -1882,8 +1899,8 @@ function drawTrough(x, y, t, open) {
   // nữa thì chai rỗng và chai đầy trông gần như nhau, mà phân biệt hai cái đó là
   // toàn bộ việc phải đọc ở khu này.
   bottlePath(bx, y, bw, bh);
-  ctx.fillStyle = "#ece7e0"; ctx.fill();
-  ctx.strokeStyle = "#b3a99c"; ctx.lineWidth = 2.5;
+  ctx.fillStyle = "#f6ecd8"; ctx.fill();
+  ctx.strokeStyle = "#c2a071"; ctx.lineWidth = 2.5;
   ctx.stroke();
 
   // ⚠ Một đường lót MÀU chạy sát mặt trong thành, dày chừng 4px. Thành thì trung
@@ -1899,7 +1916,7 @@ function drawTrough(x, y, t, open) {
   ctx.fillStyle = p.base; ctx.fill();
   const iw = bw - (ins + lin) * 2, ih = bh - (ins + lin) * 2;
   bottlePath(bx + ins + lin, y + ins + lin, iw, ih);
-  ctx.fillStyle = "#f7f9fd"; ctx.fill();
+  ctx.fillStyle = "#fdf7ea"; ctx.fill();
   if (lv > 0) {
     ctx.save();
     bottlePath(bx + ins + lin, y + ins + lin, iw, ih);
@@ -1945,16 +1962,16 @@ function drawTroughs() {
     const bxc = trX(i) + TR.w / 2;
     const byc = TR_CUT + 15;
     ctx.globalAlpha = 0.22;
-    ctx.fillStyle = "#33406a";
+    ctx.fillStyle = "#7a5a30";
     ctx.beginPath(); ctx.ellipse(bxc, byc + 13, 13, 4, 0, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#ffffff";
     ctx.beginPath(); ctx.arc(bxc, byc, 13, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "#8ea3c4"; ctx.lineWidth = 2.4;
+    ctx.strokeStyle = "#c9a06a"; ctx.lineWidth = 2.4;
     ctx.beginPath(); ctx.arc(bxc, byc, 13, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = "rgba(255,255,255,0.9)";
     ctx.beginPath(); ctx.ellipse(bxc - 4, byc - 5, 4.5, 3, -0.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#4d5c78";
+    ctx.fillStyle = "#8a6633";
     ctx.font = "700 15px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(String(hidden), bxc, byc + 5);
@@ -2037,8 +2054,8 @@ function draw() {
     ctx.scale(k, k);
     fillRR(-8, -30, 16, 9, 3, p.dark);
     bottlePath(-15, -22, 30, 44);
-    ctx.fillStyle = "#ece7e0"; ctx.fill();
-    ctx.strokeStyle = "#b3a99c"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = "#f6ecd8"; ctx.fill();
+    ctx.strokeStyle = "#c2a071"; ctx.lineWidth = 2; ctx.stroke();
     bottlePath(-10, -17, 20, 34);
     ctx.fillStyle = p.base; ctx.fill();
     ctx.restore();
@@ -2057,11 +2074,29 @@ function draw() {
   ctx.fillStyle = "rgba(240,238,255,0.95)";
   ctx.font = "700 24px system-ui, sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText("Level " + level, 24, 44);
+  // ⚠ Cả HUD phải nằm gọn trong dải 74px phía trên nóc tủ. Bản đầu xếp dọc bốn dòng
+  // và thanh tiến độ tụt xuống dưới mép tủ — chữ nằm trên mái nhà.
+  ctx.fillText("Level " + level, 24, 36);
+  // ⚠ Mục tiêu viết thẳng ra, một dòng. Review nói đúng: người chơi phải ĐOÁN mối quan
+  // hệ giữa ba khu, và cái bồn thì nhìn như thứ cần làm đầy — trong khi làm đầy nó là
+  // THUA. Không có câu nào nói ngược lại thì hình vẽ tự nó nói sai.
+  ctx.font = "600 13px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(226,220,255,0.82)";
+  ctx.fillText("Rót hết chai · đừng để tràn bồn", 24, 58);
+
+  // Tiến độ toàn ván: số chai đã đầy trên tổng. Mấy con số ở chân mỗi cột không nói
+  // được điều này — chúng chỉ đếm phần còn lại của RIÊNG cột đó.
+  const done = totalBoxes - cols.reduce((n, c) => n + c.length, 0);
+  const bw2 = 168, bx2 = W - 24 - bw2, by2 = 24;
+  fillRR(bx2, by2, bw2, 10, 5, "rgba(255,255,255,0.2)");
+  if (done > 0) fillRR(bx2, by2, Math.max(10, bw2 * done / totalBoxes), 10, 5, "#8fd4a0");
   ctx.textAlign = "right";
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.font = "700 15px system-ui, sans-serif";
-  ctx.fillText(DEMO ? "demo — thắng " + tally.win + " / thua " + tally.lose : "R = bàn mới · N = level sau", W - 24, 44);
+  ctx.font = "700 12px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(240,238,255,0.92)";
+  ctx.fillText(done + " / " + totalBoxes + " chai đầy", W - 24, 52);
+  ctx.font = "600 11px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.fillText(DEMO ? "demo — thắng " + tally.win + " / thua " + tally.lose : "R = bàn mới · N = level sau", W - 24, 68);
 
   // ⚠ Hoãn màn thua cho tới khi nước đã đổ ra được một đoạn. Phủ scrim ngay lập tức
   // thì cái hiệu ứng vừa dựng bị che mất đúng lúc nó đang nói điều cần nói.

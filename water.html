@@ -160,7 +160,7 @@ const K = (c, r) => c + "," + r;
 
 // ── State ────────────────────────────────────────────────────────────────────
 let level, tiles, grid, cavity, cavitySet, tank, cols, streams, drops, flashes, slide;
-let phase, stalledFor, shake, msg;
+let phase, stalledFor, shake, msg, overflow;
 
 // ⚠ Không còn hàm ngẫu nhiên nào trong file này, và đó là chủ ý. Bàn đọc thẳng từ
 // blueprint — cùng level là cùng bàn, mọi lần, trên mọi máy. Thêm lại một `Math.
@@ -245,7 +245,7 @@ function buildLevel(lv) {
   tank = { layers: [], total: 0, wob: 0, wobPhase: 0 };
   streams = []; drops = []; flashes = [];
   slide = new Array(COLS).fill(0);
-  phase = "play"; stalledFor = 0; shake = 0; msg = "";
+  phase = "play"; stalledFor = 0; shake = 0; msg = ""; overflow = null;
 }
 
 // ── Luật bàn ─────────────────────────────────────────────────────────────────
@@ -358,7 +358,15 @@ function pushUnit(color) {
   else tank.layers.push({ color, units: 1 });
   tank.total++;
   tank.wob = Math.min(1, tank.wob + 0.2);
-  if (tank.total > TANK_CAP) { phase = "lose"; msg = "TRÀN BỒN!"; shake = 1; }
+  if (tank.total > TANK_CAP) {
+    phase = "lose"; msg = "TRÀN BỒN!"; shake = 1;
+    // Giữ lại thứ tự màu đang có trong bồn để nước tràn ra mang đúng các màu đó —
+    // tràn là hậu quả của những gì đã rót vào, nên nó phải nhìn ra được điều đó.
+    // ⚠ Chỉ lấy tối đa 5 màu trên cùng. Bồn có thể đang giữ hàng chục lớp mỏng, và
+    // nhồi từng ấy chặng vào một dải màu thì dòng nước ra thành cái áo kẻ sọc chứ
+    // không thành nước. Năm màu đủ để thấy "mình đã dồn những gì vào đây".
+    overflow = { t: 0, cols: tank.layers.map((L) => L.color).reverse().slice(0, 5) };
+  }
 }
 
 const active = (i) => (cols[i].length ? cols[i][0] : null);
@@ -476,6 +484,7 @@ function step(now, dt) {
   for (const f of flashes) f.t -= dt / CLEAR_MS;
   flashes = flashes.filter((f) => f.t > 0);
   for (let i = 0; i < COLS; i++) slide[i] = Math.max(0, slide[i] - dt / CLEAR_MS);
+  if (overflow) overflow.t += dt / 1500;
   for (const t of tiles) if (t.pop > 0) t.pop = Math.max(0, t.pop - dt / POP_MS);
 }
 
@@ -949,6 +958,89 @@ function drawTank() {
 }
 
 /** Giếng lõm mà các cột máng thụt vào, cùng hai tông với khoang lưới. */
+/**
+ * Bồn tràn: nước ộc qua vành và đổ xuống hai bên, mang theo đúng những màu đang có
+ * trong bồn.
+ *
+ * ⚠ Màu lấy từ `overflow.cols` — chụp lại lúc tràn và ĐẢO NGƯỢC, nên màu chảy ra
+ * trước là lớp trên cùng. Tràn là hậu quả của thứ vừa rót vào, và cho nó chảy ra
+ * theo đúng thứ tự đó là cách duy nhất nói được điều đó mà không cần chữ.
+ *
+ * ⚠ Không tô một màu bệt cho cả dòng. Cả trò chơi được đọc bằng màu, nên khoảnh
+ * khắc thua cũng phải nói bằng màu: người chơi thấy ngay mình đã dồn quá nhiều thứ
+ * gì vào bồn.
+ */
+function drawOverflow() {
+  const t = Math.min(1, overflow.t);
+  const cols = overflow.cols.length ? overflow.cols : ["cyan"];
+  const { x, y, w } = TANK;
+  const ease = 1 - Math.pow(1 - t, 2);
+  // ⚠ Chỉ đổ xuống một đoạn rồi tan, không chảy hết màn hình. Bản đầu cho `reach`
+  // chạm đáy canvas và dòng rộng tới 42px: hai tấm nước phủ mất nửa dưới màn hình,
+  // che cả khu máng — đúng lúc người chơi cần nhìn xem mình đã dồn gì vào bồn.
+  const reach = ease * 210;
+
+  // Dải màu dùng chung cho cả hai bên: đúng chồng màu của bồn, kéo dọc theo dòng.
+  const g = ctx.createLinearGradient(0, y, 0, y + reach + 10);
+  cols.forEach((c, i) => g.addColorStop(Math.min(0.8, i / Math.max(1, cols.length)), PAL[c].base));
+  // Đuôi dòng trong dần rồi mất hẳn — cắt ngang bằng một cạnh cứng thì nó đọc thành
+  // một thanh nhựa màu chứ không thành nước đang rơi.
+  g.addColorStop(1, "rgba(255,255,255,0)");
+
+  for (const side of [-1, 1]) {
+    const ex = side < 0 ? x + 8 : x + w - 8;
+    const wide = 9 + ease * 12;
+    ctx.save();
+    ctx.beginPath();
+    // Mép nước cong ra khỏi vành rồi mới đổ thẳng xuống — nước không rẽ góc vuông.
+    ctx.moveTo(ex, y + 2);
+    ctx.quadraticCurveTo(ex + side * (wide + 10), y + 10, ex + side * wide, y + 26);
+    ctx.lineTo(ex + side * (wide + 6), y + reach);
+    ctx.lineTo(ex - side * 6, y + reach);
+    ctx.lineTo(ex - side * 2, y + 24);
+    ctx.closePath();
+    ctx.fillStyle = g;
+    ctx.globalAlpha = 0.95;
+    ctx.fill();
+    // Gân sáng dọc mép ngoài, để khối nước có mặt chứ không phẳng lì.
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = PAL[cols[0]].light;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(ex + side * 2, y + 6);
+    ctx.quadraticCurveTo(ex + side * (wide + 8), y + 12, ex + side * (wide - 2), y + reach);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Gò nước phồng lên trên vành trước khi ộc ra.
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = PAL[cols[0]].base;
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + 3, w / 2 - 4, 6 + ease * 7, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = PAL[cols[0]].light;
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + 1, w / 2 - 12, 3 + ease * 4, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.restore();
+
+  // Giọt văng: mỗi giọt một màu trong bồn, rơi lệch nhịp nhau.
+  for (let i = 0; i < 6; i++) {
+    const c = PAL[cols[i % cols.length]];
+    const ph = ((t * 1.6 + i * 0.137) % 1);
+    const sx = x + 14 + ((i * 37) % (w - 28));
+    const sy = y + 8 + ph * 230;
+    ctx.globalAlpha = (1 - ph) * 0.85;
+    ctx.fillStyle = c.base;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, 4 - ph * 1.5, 7 - ph * 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
 function drawWell() {
   const top = TR.y0 - 12;
   const hgt = MACH.y + MACH.h - top - 10;
@@ -1007,7 +1099,7 @@ function drawWell() {
 function drawTrough(x, y, t, open) {
   const p = PAL[t.color];
   const lv = t.filled / TROUGH_CAP;
-  const bw = 64, bh = TR.h;
+  const bw = 56, bh = TR.h;
   const bx = x + (TR.w - bw) / 2;
 
   // Nắp: chỗ duy nhất mang màu khi bình còn rỗng.
@@ -1072,7 +1164,7 @@ function drawTroughs() {
   for (const f of flashes) {
     // Khung loé phải là khung CÁI BÌNH, không phải cả ô cột. Ô rộng 106 còn bình chỉ
     // 64, nên dùng ô thì cái nổ ra rộng gần gấp đôi thứ vừa biến mất.
-    const box = f.box ?? [trX(f.col) + (TR.w - 64) / 2, TR.y0 - 11, 64, TR.h + 11];
+    const box = f.box ?? [trX(f.col) + (TR.w - 56) / 2, TR.y0 - 11, 56, TR.h + 11];
     const grow = (1 - f.t) * 5;
     ctx.globalAlpha = f.t * f.t;
     fillRR(box[0] - grow, box[1] - grow, box[2] + grow * 2, box[3] + grow * 2, 9 + grow, PAL[f.color].base);
@@ -1116,6 +1208,7 @@ function draw() {
   drawWell();
   drawTroughs();
   drawDrops();
+  if (overflow) drawOverflow();
 
   // HUD nằm trên nền tím, ngoài thân tủ — nên chữ sáng, khác chữ trên máy.
   ctx.fillStyle = "rgba(240,238,255,0.95)";
@@ -1127,7 +1220,9 @@ function draw() {
   ctx.font = "700 15px system-ui, sans-serif";
   ctx.fillText(DEMO ? "demo — thắng " + tally.win + " / thua " + tally.lose : "R = bàn mới · N = level sau", W - 24, 44);
 
-  if (phase !== "play") {
+  // ⚠ Hoãn màn thua cho tới khi nước đã đổ ra được một đoạn. Phủ scrim ngay lập tức
+  // thì cái hiệu ứng vừa dựng bị che mất đúng lúc nó đang nói điều cần nói.
+  if (phase !== "play" && (!overflow || overflow.t > 0.55)) {
     ctx.fillStyle = "rgba(20,16,44,0.74)";
     ctx.fillRect(0, 0, W, H);
     ctx.textAlign = "center";

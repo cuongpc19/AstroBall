@@ -102,6 +102,8 @@ const POUR_LEAD = 220;
 // nó đọc thành phễu đồng hồ cát. 66° và 46° đều hỏng đúng kiểu đó.
 const TILT_MAX = 0.44;
 const CLEAR_MS = 620;
+// Nắp bay khỏi bình trong chừng này khi bình vừa hết bị chắn.
+const POP_MS = 460;
 // ── Bộ level ─────────────────────────────────────────────────────────────────
 //
 // **Bàn của 20 level đầu là bàn THẬT của game cũ**, trích nguyên từ `HANDMADE`
@@ -408,6 +410,23 @@ function step(now, dt) {
     // Bình ẩn lộ mặt bằng ĐÚNG phép thử của `liftable` — xem ghi chú ở `canEscape`.
     for (const t of tiles) if (t.hidden && canEscape(t)) t.hidden = false;
 
+    // ⚠ **Bật nắp là một CHUYỂN TRẠNG THÁI, phải bắt ở đây chứ không tính lại khi
+    // vẽ.** Hàm vẽ chạy mỗi khung hình và chỉ biết "lúc này khoá hay không"; cái
+    // đáng xem là đúng khoảnh khắc nó thôi bị khoá, và khoảnh khắc đó chỉ tồn tại
+    // giữa hai khung hình. Không lưu lại thì nắp biến mất trong một khung — người
+    // chơi vừa rót xong ô bên cạnh, không nhìn về phía này, và không bao giờ biết
+    // bàn vừa mở thêm đường nào.
+    //
+    // ⚠ Lượt đầu chỉ GHI trạng thái, không châm ngòi: nếu không thì mọi bình rót
+    // được trên bàn cùng bật nắp một lượt ngay khi level mở ra.
+    for (const t of tiles) {
+      if (!t.pots) continue;
+      const lk = !liftable(t) && !t.pouring && !t.hidden;
+      if (t.locked === undefined) t.locked = lk;
+      else if (t.locked && !lk) { t.pop = 1; t.locked = false; }
+      else t.locked = lk;
+    }
+
     for (const t of tiles.slice()) {
       if (!t.pots) continue;
       if (!t.pouring) { for (const p of t.pots) p.tilt += (0 - p.tilt) * 0.18; continue; }
@@ -448,6 +467,7 @@ function step(now, dt) {
   for (const f of flashes) f.t -= dt / CLEAR_MS;
   flashes = flashes.filter((f) => f.t > 0);
   for (let i = 0; i < COLS; i++) slide[i] = Math.max(0, slide[i] - dt / CLEAR_MS);
+  for (const t of tiles) if (t.pop > 0) t.pop = Math.max(0, t.pop - dt / POP_MS);
 }
 
 // ── Draw ─────────────────────────────────────────────────────────────────────
@@ -548,7 +568,7 @@ function drawCavity() {
   }
 }
 
-function drawPot(p, locked, hidden) {
+function drawPot(p, locked, hidden, pop) {
   const bw = 46, bh = 54;
   const x = cellX(p.cell[0]), y = cellY(p.cell[1]);
   ctx.save();
@@ -595,13 +615,35 @@ function drawPot(p, locked, hidden) {
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText("?", bw / 2, bh / 2);
     ctx.textBaseline = "alphabetic";
-  } else if (locked) {
+  } else if (locked || pop > 0) {
     // ⚠ Bình bị nhốt phải NHÌN RA ĐƯỢC, không chỉ là bấm không ăn. Game cũ nói điều
     // đó bằng trứng nổi-hay-lép; bình không có trứng nên lời hứa chuyển sang cái NẮP.
     // Nắp chứ không phải làm mờ: mờ đọc thành "ô hỏng", nắp đọc thành "đậy, mở sau".
-    fillRR(bw / 2 - 13, -18, 26, 13, 4, "#69769a");
-    fillRR(bw / 2 - 13, -18, 26, 6, 3, "#8f9cbd");
+    //
+    // `pop` chạy 1 -> 0 sau khi bình hết bị chắn. `k` là 0 khi còn đậy và 1 khi nắp
+    // đã bay hẳn đi, nên hai trạng thái dùng CHUNG một hình vẽ — nắp lúc đậy và nắp
+    // lúc bay không thể lệch nhau, vì chúng là một.
+    const k = locked ? 0 : 1 - pop;
+    const lift = k * (36 - 14 * k);     // bật vọt lên rồi rơi lại: một parabol
+    ctx.save();
+    ctx.globalAlpha = locked ? 1 : Math.min(1, pop * 1.6);
+    ctx.translate(bw / 2 + k * 17, -11 - lift);
+    ctx.rotate(k * 1.5);
+    fillRR(-13, -7, 26, 13, 4, "#69769a");
+    fillRR(-13, -7, 26, 6, 3, "#8f9cbd");
+    ctx.restore();
+    // Màng tối trong bình tan cùng nhịp, nếu không thì nắp bay đi mà cái bình vẫn
+    // xám — vẫn đọc là chưa mở được.
+    ctx.globalAlpha = locked ? 1 : pop;
     fillRR(2, 2, bw - 4, bh - 4, 11, "rgba(46,58,84,0.28)");
+    ctx.globalAlpha = 1;
+    if (!locked) {
+      // Một loé trắng trên thân, để "vừa mở được" bắt được mắt kể cả khi người chơi
+      // đang nhìn chỗ khác trên bàn.
+      ctx.globalAlpha = pop * 0.55;
+      fillRR(0, 0, bw, bh, 13, "#ffffff");
+      ctx.globalAlpha = 1;
+    }
   }
   ctx.restore();
 }
@@ -711,7 +753,7 @@ function drawTiles() {
     if (!t.pots) continue;
     const locked = !liftable(t) && !t.pouring && !t.hidden;
     if (t.kind === "pair") drawClip(t);
-    for (const p of t.pots) drawPot(p, locked, t.hidden);
+    for (const p of t.pots) drawPot(p, locked, t.hidden, t.pop || 0);
   }
 }
 
@@ -809,6 +851,70 @@ function drawWell() {
     fillRR(trX(i) - 3, top + 8, TR.w + 6, hgt - 14, 12, "rgba(159,176,203,0.22)");
 }
 
+/**
+ * Một cái máng.
+ *
+ * ⚠ **Cả THÂN mang màu, không chỉ cái nắp.** Đây là cách `drawBody` của game cũ vẽ
+ * box: cả thanh bar là màu của nó, phần lòng chỉ là chỗ vật thể rơi vào. Bản trước
+ * để thân tối và chỉ tô màu một vạch trên nóc, nên trong một cột bốn cái xếp chồng
+ * thì thứ đọc được chỉ là bốn cái gạch mảnh — mà cả cột là hàng đợi người chơi phải
+ * nhìn trước để biết rót gì.
+ *
+ * Lòng máng để TRẮNG khi chưa có nước: nó biến mực nước thành thứ tương phản mạnh
+ * nhất trên cả cái máng, nên đọc được "đầy tới đâu" mà không cần đọc con số.
+ */
+function drawTrough(x, y, t, open) {
+  const p = PAL[t.color];
+  const lv = t.filled / TROUGH_CAP;
+
+  // Thân: gờ tối dưới đáy rồi mặt gradient — cùng cách dựng với mọi mảnh khác ở đây.
+  fillRR(x, y + 3, TR.w, TR.h - 3, 10, p.dark);
+  const g = ctx.createLinearGradient(0, y, 0, y + TR.h);
+  g.addColorStop(0, p.light); g.addColorStop(0.72, p.base); g.addColorStop(1, p.base);
+  fillRR(x, y, TR.w, TR.h - 5, 10, g);
+  ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 1.4;
+  rr(x + 3, y + 3, TR.w - 6, TR.h - 11, 8); ctx.stroke();
+
+  // Lòng máng, thụt vào và trắng.
+  const ix = x + 12, iy = y + 8, iw = TR.w - 24, ih = TR.h - 21;
+  fillRR(ix, iy + 1.5, iw, ih, 6, "rgba(30,20,10,0.28)");
+  fillRR(ix, iy, iw, ih, 6, "#fbfcff");
+
+  ctx.save();
+  rr(ix, iy, iw, ih, 6); ctx.clip();
+  // Hai vạch chia ở 1/3 và 2/3 chiều cao lòng máng: mực nước là liên tục, nên nếu
+  // không có mốc thì "đầy 2 phần 3" phải đoán. Vẽ trước nước để nước phủ lên chúng.
+  ctx.strokeStyle = "rgba(120,140,175,0.35)"; ctx.lineWidth = 1;
+  for (let s = 1; s < TROUGH_CAP; s++) {
+    const yy = iy + ih - (s / TROUGH_CAP) * ih;
+    ctx.beginPath(); ctx.moveTo(ix + 3, yy); ctx.lineTo(ix + iw - 3, yy); ctx.stroke();
+  }
+  if (lv > 0) {
+    const top = iy + ih - lv * ih;
+    const wg = ctx.createLinearGradient(0, top, 0, iy + ih);
+    wg.addColorStop(0, p.light); wg.addColorStop(0.4, p.base); wg.addColorStop(1, p.dark);
+    ctx.fillStyle = wg;
+    ctx.beginPath();
+    waterTop(ix, iw, top, 1.5, performance.now() * 0.005 + x * 0.03);
+    ctx.lineTo(ix + iw, iy + ih); ctx.lineTo(ix, iy + ih); ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.strokeStyle = "rgba(70,90,124,0.35)"; ctx.lineWidth = 1.4;
+  rr(ix, iy, iw, ih, 6); ctx.stroke();
+
+  if (open) {
+    // ⚠ Chữ có viền trắng vì nó nằm trên nền ĐỔI MÀU: lòng trắng lúc rỗng, màu đậm
+    // lúc đầy. Một màu chữ duy nhất không đọc được trên cả hai.
+    ctx.font = "700 15px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineJoin = "round";
+    ctx.strokeText(t.filled + "/" + TROUGH_CAP, x + TR.w / 2, y + TR.h - 13);
+    ctx.fillStyle = UI.ink;
+    ctx.fillText(t.filled + "/" + TROUGH_CAP, x + TR.w / 2, y + TR.h - 13);
+  }
+}
+
 function drawTroughs() {
   for (let i = 0; i < COLS; i++) {
     const shown = Math.min(TR_VISIBLE, cols[i].length);
@@ -822,39 +928,11 @@ function drawTroughs() {
       ctx.fillText("+" + hidden, trX(i) + TR.w / 2, TR.y0 + shown * (TR.h + TR.vgap) + 12);
     }
     for (let k = 0; k < shown; k++) {
-      const t = cols[i][k];
-      const x = trX(i), y = TR.y0 + k * (TR.h + TR.vgap) + yOff;
-      const p = PAL[t.color];
-      const open = k === 0;
-      // ⚠ Máng chưa tới lượt vẫn phải ĐỌC ĐƯỢC MÀU, chỉ mờ hơn. Ở 0.4 trên nền
-      // giếng trắng chúng bạc hết thành xám, mà cả cột là hàng đợi người chơi phải
-      // nhìn trước để biết rót gì — che nó đi là bỏ mất nửa thông tin của bàn.
-      ctx.globalAlpha = open ? 1 : 0.78;
-      fillRR(x, y, TR.w, TR.h, 9, "rgba(30,44,72,0.75)");
-      if (open && t.filled > 0) {
-        ctx.save();
-        rr(x + 3, y + 3, TR.w - 6, TR.h - 6, 7); ctx.clip();
-        const top = y + TR.h - 3 - (t.filled / TROUGH_CAP) * (TR.h - 6);
-        const g = ctx.createLinearGradient(0, top, 0, y + TR.h);
-        g.addColorStop(0, p.light); g.addColorStop(0.4, p.base); g.addColorStop(1, p.dark);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        waterTop(x, TR.w, top, 1.6, performance.now() * 0.005 + i);
-        ctx.lineTo(x + TR.w, y + TR.h); ctx.lineTo(x, y + TR.h); ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      }
-      // Vành máng mang màu nó nhận — máng rỗng thì đó là thứ duy nhất nói màu gì.
-      fillRR(x + 3, y + 2, TR.w - 6, 6, 3, p.base);
-      ctx.strokeStyle = open ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.22)";
-      ctx.lineWidth = 2;
-      rr(x, y, TR.w, TR.h, 9); ctx.stroke();
-      if (open) {
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
-        ctx.font = "700 14px system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(t.filled + "/" + TROUGH_CAP, x + TR.w / 2, y + TR.h - 8);
-      }
+      // ⚠ Máng chưa tới lượt chỉ mờ RẤT ít. Alpha thấp không chỉ làm nhạt cái thân —
+      // nó làm lòng máng trắng ngả sang màu thân ở phía sau, nên cái lòng trắng vừa
+      // thêm vào lại nhuốm màu ở đúng ba phần tư số máng đang hiển thị.
+      ctx.globalAlpha = k === 0 ? 1 : 0.92;
+      drawTrough(trX(i), TR.y0 + k * (TR.h + TR.vgap) + yOff, cols[i][k], k === 0);
       ctx.globalAlpha = 1;
     }
   }

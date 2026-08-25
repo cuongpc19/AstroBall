@@ -94,7 +94,16 @@ const TR_VISIBLE = 4;      // vẽ bấy nhiêu hàng box, còn lại đếm b�
 const HATCH_LOAD = 3;      // số bình sau cánh cửa mỗi hatch
 const LID_LOAD = 4;        // số bình dưới mỗi tấm socola — game cũ cũng là 4
 
-let DRAIN_MS = 170;
+// Một đơn vị nước rời bồn mỗi chừng này — nhân với 4 vòi chảy song song.
+//
+// 110 -> 170 -> 255. Lần đầu vì bồn hạ xuống còn 84px nên một đơn vị chỉ dày 2,8px
+// và mực nước tụt nhanh quá, không đọc được nó vừa rút màu nào; lần này chậm thêm
+// một nửa nữa để nhìn rõ từng bồn rót xuống từng bình.
+//
+// ⚠ Đây là nhịp của LUẬT, không phải của hình — mỗi nhịp là một đơn vị thật sự rời
+// bồn. Kéo dài nó là kéo dài cả ván, và cũng là nới thêm thời gian người chơi có
+// để rót tiếp trước khi bồn kịp vơi, tức là làm bàn dễ đi một chút.
+let DRAIN_MS = 255;
 const POUR_MS = 150;
 const POUR_LEAD = 220;
 // ⚠ 25°. Thân bình gần vuông để vừa một ô lưới, mà hình gần vuông xoay 45° thì
@@ -462,7 +471,7 @@ function step(now, dt) {
   shake *= 0.9;
   for (const s of streams) s.t += dt / 300;
   streams = streams.filter((s) => s.t < 1);
-  for (const d of drops) d.t += dt / 200;
+  for (const d of drops) d.t += dt / 290;   // giọt rơi chậm theo nhịp rút
   drops = drops.filter((d) => d.t < 1);
   for (const f of flashes) f.t -= dt / CLEAR_MS;
   flashes = flashes.filter((f) => f.t > 0);

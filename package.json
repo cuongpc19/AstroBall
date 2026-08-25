@@ -21,6 +21,7 @@
     "replay": "node scripts/replay.mjs",
     "table": "node scripts/table.mjs",
     "editor": "vite --open /editor.html",
+    "water": "vite --open /water.html",
     "build:crazy": "node scripts/build-target.mjs crazy",
     "build:web": "node scripts/build-target.mjs web",
     "iframe": "vite preview"

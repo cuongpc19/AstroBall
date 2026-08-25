@@ -154,10 +154,10 @@ function layoutGrid(cols, rows) {
 // "còn bao nhiêu chỗ", cả hai đọc bằng bề dày dải màu. Chiều cao dôi ra chuyển hết
 // lên cho lưới bình, vì đó mới là chỗ ra quyết định.
 const TANK = { x: 34, y: 478, w: 472, h: 106 };
-// Chai bẹt: rộng 76 trên thân cao 50. Rộng gần hết bề ngang cột nên khối nước dài
-// theo chiều ngang, và ba nấc 1/3–2/3–đầy vẫn tách nhau vì cái tách chúng là bề DÀY
-// của khối, không phải chiều cao cái chai.
-const TR = { x0: 42, y0: 626, w: 106, gap: 8, h: 50, vgap: 12 };
+// Chai cao và hẹp: thân 46 rộng trên 64 cao. Cao thì khối nước có chỗ dâng, nên ba
+// nấc 1/3–2/3–đầy cách nhau hơn 20px thay vì 16 — đọc được mức nước mà không cần
+// đếm. Hẹp thì cái cột đọc thành một CHỒNG chai, không thành mấy thanh ngang.
+const TR = { x0: 42, y0: 626, w: 106, gap: 8, h: 64, vgap: 12 };
 
 // ⚠ Chỗ xén khu box: ba hàng ĐẦY ĐỦ, hàng thứ tư chỉ ló cái nắp.
 //
@@ -391,20 +391,30 @@ function countTowardLids(color) {
 
 // ── Luật bồn ─────────────────────────────────────────────────────────────────
 
+/**
+ * Đổ một đơn vị vào bồn.
+ *
+ * ⚠ **Cùng màu thì gộp, nằm ở đâu cũng gộp — không chỉ gộp với lớp trên cùng.** Rót
+ * cam, rồi vàng, rồi cam nữa, bản trước cho ra ba dải riêng; rót qua lại chục lần
+ * thì bồn thành cái áo kẻ sọc và không đọc ra "đang giữ những màu gì" nữa.
+ *
+ * ⚠ Việc này chỉ ĐÚNG được vì luật rút đã đổi. Hồi bồn chỉ nhả được lớp đáy, thứ tự
+ * các lớp CHÍNH LÀ luật — gộp lại là đổi bàn cờ. Giờ mỗi máng mở tự hút màu của nó
+ * ra khỏi lớp bất kỳ, nên thứ tự không còn mang thông tin nào; giữ nó lại chỉ tổ
+ * chia nhỏ màn hình. Nói cách khác: cái bồn từ một NGĂN XẾP thành một cái TÚI.
+ */
 function pushUnit(color) {
-  const top = tank.layers[tank.layers.length - 1];
-  if (top && top.color === color) top.units++;
+  const L = tank.layers.find((l) => l.color === color);
+  if (L) L.units++;
   else tank.layers.push({ color, units: 1 });
   tank.total++;
   tank.wob = Math.min(1, tank.wob + 0.2);
   if (tank.total > TANK_CAP) {
     phase = "lose"; msg = "TRÀN BỒN!"; shake = 1;
-    // Giữ lại thứ tự màu đang có trong bồn để nước tràn ra mang đúng các màu đó —
-    // tràn là hậu quả của những gì đã rót vào, nên nó phải nhìn ra được điều đó.
-    // ⚠ Chỉ lấy tối đa 5 màu trên cùng. Bồn có thể đang giữ hàng chục lớp mỏng, và
-    // nhồi từng ấy chặng vào một dải màu thì dòng nước ra thành cái áo kẻ sọc chứ
-    // không thành nước. Năm màu đủ để thấy "mình đã dồn những gì vào đây".
-    overflow = { t: 0, cols: tank.layers.map((L) => L.color).reverse().slice(0, 5) };
+    // Màu nước tràn ra lấy từ chính các dải đang có, lớp trên trước — tràn là hậu
+    // quả của thứ vừa rót vào, nên nó phải nhìn ra được điều đó. Tối đa 5 màu: nhồi
+    // nhiều hơn vào một dải gradient thì dòng nước thành áo kẻ sọc.
+    overflow = { t: 0, cols: tank.layers.map((L2) => L2.color).reverse().slice(0, 5) };
   }
 }
 
@@ -415,11 +425,9 @@ function takeUnit(i) {
   const L = tank.layers[i];
   L.units--; tank.total--;
   if (L.units > 0) return;
+  // Không còn phải gộp hàng xóm: `pushUnit` đã gộp theo màu nên trong bồn không thể
+  // tồn tại hai dải cùng màu.
   tank.layers.splice(i, 1);
-  if (i > 0 && i < tank.layers.length && tank.layers[i - 1].color === tank.layers[i].color) {
-    tank.layers[i - 1].units += tank.layers[i].units;
-    tank.layers.splice(i, 1);
-  }
 }
 
 /**
@@ -1387,22 +1395,22 @@ function drawWell() {
 function drawTrough(x, y, t, open) {
   const p = PAL[t.color];
   const lv = t.filled / TROUGH_CAP;
-  const bw = 76, bh = TR.h;
+  const bw = 46, bh = TR.h;
   const bx = x + (TR.w - bw) / 2;
 
   ctx.globalAlpha = open ? 1 : 0.72;
 
   // Nắp — cùng màu nước, vì đây là thứ duy nhất mang màu khi bình còn rỗng.
-  fillRR(bx + bw / 2 - 11, y - 10, 22, 12, 4, p.base);
+  fillRR(bx + bw / 2 - 8, y - 10, 16, 12, 4, p.base);
 
   // Thân: gần trắng, chỉ ngả nhẹ về phía màu của nó.
   fillRR(bx, y, bw, bh, 13, "#f3f4fa");
-  ctx.strokeStyle = shade(p.dark, 0.95);
-  // ⚠ 0.45 chứ không phải 0.28: giếng đã trắng, thân bình cũng gần trắng, nên cái
-  // viền tô nhạt màu là thứ DUY NHẤT tách được hai lớp đó ra. Ở 0.28 cả cột nhoè
-  // thành một mảng sáng — đúng lỗi tương phản thấp vừa sửa xong ở bản trước.
-  ctx.globalAlpha *= 0.45;
-  ctx.lineWidth = 1.5;
+  // ⚠ Viền tô ĐẶC màu và dày 3px, không phải một nét mảnh nhạt màu. Giếng trắng, thân
+  // chai cũng gần trắng, nên cái viền là thứ DUY NHẤT tách hai lớp đó ra — và cũng là
+  // chỗ thứ hai (sau cái nắp) nói màu của chai. Nhạt và mảnh thì cả cột nhoè thành
+  // một mảng sáng, mà bốn cột cạnh nhau như thế là mất luôn hàng đợi.
+  ctx.strokeStyle = shade(p.dark, 0.8);
+  ctx.lineWidth = 3;
   rr(bx, y, bw, bh, 13); ctx.stroke();
   ctx.globalAlpha = open ? 1 : 0.72;
 

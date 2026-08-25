@@ -20,24 +20,32 @@
     <div id="wrap"><canvas id="c"></canvas></div>
     <script>
 // ─────────────────────────────────────────────────────────────────────────────
-// AquaSort — prototype
+// AquaSort — prototype nước cho AstroBall
 //
-// Không phải re-skin của AstroBall: cái này bỏ vòng băng chuyền, nên luật thắng
-// thua phải viết lại từ đầu. Đây là bản luật đề xuất, viết ra để nhìn được:
+// Đây là chỗ rẻ để chốt cái NHÌN trước khi động vào GameScene thật (3.5k dòng, có
+// Matter physics trong phễu và cả bộ coach mark bám vào nó). Các con số ở đây bám
+// đúng game cũ, không phải số chọn cho prototype:
 //
-//   bình  → tap thì nghiêng, đổ hết nước xuống bồn (không qua phễu)
-//   bồn   → nước xếp thành LỚP theo thứ tự vào, cùng màu thì gộp lại
-//   máng  → bồn chỉ rút được LỚP DƯỚI CÙNG, và chỉ khi có máng đang mở đúng màu
+//   khay  → bình nước, 9 đơn vị   (TRAY_N)
+//   ray   → một bồn 30 đơn vị     (BELT_SLOTS) — nhưng không còn ô, không còn vòng
+//   box   → máng 3 đơn vị         (BOX_SLOTS)
 //
-// Chỗ căng nằm ở chữ "dưới cùng": đổ nhầm thứ tự thì lớp đáy là màu không máng
-// nào nhận, bồn tắc, mà nước vẫn tiếp tục dâng. Đó là bản dịch của "belt jams"
-// sang thế giới nước — vòng lặp của băng chuyền không dịch được, vì nước trong
-// một cái bồn thì không chạy vòng.
+// Cái bị bỏ so với game cũ là **vật lý giữa các viên bi**: không còn body Matter
+// va nhau trong phễu, nước chảy thẳng từ bình xuống bồn.
+//
+// ⚠ **Bỏ vòng lặp của băng chuyền là đổi LUẬT, không phải đổi hình.** Trên ray cũ,
+// một viên không khớp cứ chạy vòng cho tới khi box của nó mở — đó là lý do game cũ
+// tha thứ được. Nước trong một cái bồn thì không chạy vòng, nên phải có luật khác
+// thế chỗ, và đây là luật đề xuất:
+//
+//   bồn xếp nước thành LỚP theo thứ tự vào, cùng màu thì gộp lại
+//   bồn chỉ rút được LỚP DƯỚI CÙNG, và chỉ khi có máng mở đúng màu
+//   kẹt lớp đáy = tắc; nước vẫn dâng quá 30 = tràn
 //
 // Toàn bộ file này độc lập: không import gì, mở thẳng bằng browser cũng chạy.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const W = 540, H = 820;
+const W = 540, H = 830;
 
 // Bảng màu lấy nguyên từ src/game/config.ts — nếu sau này ghép vào game thật thì
 // không phải chỉnh lại màu, và hai bên vẫn đọc giống nhau trên cùng một máy.
@@ -52,23 +60,28 @@ const PAL = {
   red:    { base: "#ec3d3d", light: "#ff8080", dark: "#a71c1c" },
 };
 
-// ⚠ Ba số này là toàn bộ độ khó, và chúng bị buộc vào nhau.
-//
-// JAR = TROUGH nghĩa là một bình vừa khít một máng — người chơi đọc được "bình
-// này đi đâu" mà không phải đếm. TANK_CAP = 30 giữ nguyên sức chứa băng chuyền
-// cũ, tức là bồn ôm được 3 bình và một phần bình thứ tư: đủ để sai một nước thì
-// còn gỡ, sai hai nước thì tràn.
+// ⚠ **Tỉ lệ 9:3 buộc bộ sinh bàn phải đẻ ĐÚNG 3 máng cho mỗi bình.** Tổng nước màu
+// C là (số bình C) x 9, sức chứa máng màu C là (số máng C) x 3 — lệch một cái là
+// bàn thừa nước và thiếu chỗ, không cách nào chơi hết dù chơi hoàn hảo. Đây là
+// ràng buộc duy nhất trong file mà đổi TROUGH_CAP thì phải sửa theo: xem `newBoard`.
 const JAR_UNITS = 9;
-const TROUGH_CAP = 9;
+const TROUGH_CAP = 3;
 const TANK_CAP = 30;
 const COLS = 4;            // số cột máng, cũng là số màu mở cùng lúc
-const DEPTH = 3;           // số máng xếp chồng trong một cột
+const DEPTH = 6;           // số máng xếp chồng trong một cột
+const JARS = (COLS * DEPTH) / (JAR_UNITS / TROUGH_CAP);   // 24 máng / 3 = 8 bình
+
 let DRAIN_MS = 110;        // một đơn vị nước rời bồn mỗi chừng này
+// ⚠ Rót chậm là chủ ý. Cả trò chơi nằm ở thứ tự các lớp trong bồn, mà một cú rót 9
+// đơn vị trong nửa giây thì lớp mới hiện ra là đã xong — người chơi không kịp thấy
+// nó chồng lên cái gì. 150ms/đơn vị cho một bình mất khoảng 1,6 giây, đủ để đọc.
+const POUR_MS = 150;       // một đơn vị rời bình mỗi chừng này
+const POUR_LEAD = 220;     // nghiêng bao lâu trước khi giọt đầu rơi
 
 // ── Layout ───────────────────────────────────────────────────────────────────
-const JAR_X0 = 30, JAR_Y0 = 128, JAR_COLW = 80, JAR_ROWH = 92, JAR_COLS = 6;
-const TANK = { x: 30, y: 300, w: 480, h: 210 };
-const TR = { x0: 34, y0: 566, w: 110, gap: 8, h: 52, vgap: 8 };
+const JAR_X0 = 30, JAR_Y0 = 118, JAR_COLW = 120, JAR_ROWH = 92, JAR_COLS = 4;
+const TANK = { x: 30, y: 286, w: 480, h: 200 };
+const TR = { x0: 34, y0: 540, w: 110, gap: 8, h: 36, vgap: 6 };
 
 const trX = (i) => TR.x0 + i * (TR.w + TR.gap);
 const spoutX = (i) => trX(i) + TR.w / 2;
@@ -78,41 +91,35 @@ let jars, tank, cols, streams, drops, flashes, phase, stalledFor, shake, msg, se
 
 function rnd() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
 
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
 function newBoard(s) {
   seed = (s ?? Math.floor(Math.random() * 1e9)) >>> 0;
-  const names = Object.keys(PAL);
-  // Số bình = số máng, và mỗi bình có đúng một máng cùng màu. Không phải để cho
-  // dễ — mà vì tổng nước mỗi màu phải chia hết cho sức chứa máng, nếu không thì
-  // bàn không thể giải hết dù chơi hoàn hảo.
-  const total = COLS * DEPTH;
-  const bag = [];
-  for (let i = 0; i < total; i++) bag.push(names[i % Math.min(names.length, 6)]);
-  for (let i = bag.length - 1; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [bag[i], bag[j]] = [bag[j], bag[i]]; }
+  const names = Object.keys(PAL).slice(0, 6);
 
+  const bag = shuffle(Array.from({ length: JARS }, (_, i) => names[i % names.length]));
   jars = bag.map((color, i) => ({
     color, units: JAR_UNITS,
     cx: JAR_X0 + (i % JAR_COLS) * JAR_COLW + JAR_COLW / 2,
     cy: JAR_Y0 + ((i / JAR_COLS) | 0) * JAR_ROWH,
-    tilt: 0, pouring: false, gone: false, wob: 0,
+    tilt: 0, pouring: false, gone: false, poured: 0, pourT: 0,
   }));
 
-  // Máng: cùng túi màu, xáo lại độc lập. Cột nào cũng có DEPTH máng, cái trên cùng
-  // là cái đang mở — y hệt cột box của game gốc.
-  const bag2 = bag.slice();
-  for (let i = bag2.length - 1; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [bag2[i], bag2[j]] = [bag2[j], bag2[i]]; }
+  // Ba máng cho mỗi bình — xem ghi chú ở TROUGH_CAP.
+  const troughBag = [];
+  for (const c of bag) for (let k = 0; k < JAR_UNITS / TROUGH_CAP; k++) troughBag.push(c);
+  shuffle(troughBag);
   cols = [];
   for (let i = 0; i < COLS; i++) {
-    cols.push(bag2.slice(i * DEPTH, (i + 1) * DEPTH).map((color) => ({ color, filled: 0 })));
+    cols.push(troughBag.slice(i * DEPTH, (i + 1) * DEPTH).map((color) => ({ color, filled: 0 })));
   }
 
   tank = { layers: [], total: 0, wob: 0, wobPhase: 0 };
-  streams = [];
-  drops = [];
-  flashes = [];
-  phase = "play";
-  stalledFor = 0;
-  shake = 0;
-  msg = "";
+  streams = []; drops = []; flashes = [];
+  phase = "play"; stalledFor = 0; shake = 0; msg = "";
 }
 
 // ── Rules ────────────────────────────────────────────────────────────────────
@@ -123,7 +130,7 @@ function pushUnit(color) {
   if (top && top.color === color) top.units++;
   else tank.layers.push({ color, units: 1 });
   tank.total++;
-  tank.wob = Math.min(1, tank.wob + 0.22);
+  tank.wob = Math.min(1, tank.wob + 0.2);
   if (tank.total > TANK_CAP) { phase = "lose"; msg = "TRÀN BỒN!"; shake = 1; }
 }
 
@@ -133,9 +140,9 @@ const active = (i) => (cols[i].length ? cols[i][0] : null);
 /**
  * Rút một đơn vị khỏi đáy bồn.
  *
- * ⚠ **Chỉ lớp đáy, và chỉ khi có máng mở đúng màu.** Đây là cả trò chơi. Cho
- * phép rút lớp bất kỳ thì không còn quyết định nào để sai; cho phép nước không
- * khớp chảy đi mất thì bồn không bao giờ tắc và cũng không bao giờ thua.
+ * ⚠ **Chỉ lớp đáy, và chỉ khi có máng mở đúng màu.** Đây là cả trò chơi. Cho phép
+ * rút lớp bất kỳ thì không còn quyết định nào để sai; cho phép nước không khớp
+ * chảy đi mất thì bồn không bao giờ tắc và cũng không bao giờ thua.
  */
 function drain() {
   const bottom = tank.layers[0];
@@ -149,23 +156,27 @@ function drain() {
   if (bottom.units === 0) tank.layers.shift();
 
   const t = active(ci);
-  drops.push({ x: spoutX(ci), y: TANK.y + TANK.h, col: ci, color: bottom.color, t: 0 });
+  drops.push({ x: spoutX(ci), y: TANK.y + TANK.h, color: bottom.color, t: 0 });
   t.filled++;
   // ⚠ **Đóng máng ngay trong lượt rút, không hẹn giờ.** Bản đầu shift qua setTimeout
-  // 260ms, mà DRAIN_MS = 110 — nên hai đơn vị nữa kịp rót vào một cái máng đã đầy.
-  // Nước đó biến mất khỏi bồn nhưng không mở thêm máng nào, nên tổng nước một màu
-  // tụt xuống dưới tổng sức chứa máng màu đó, và bàn thành KHÔNG THỂ giải. Bot demo
-  // đâm vào đúng chỗ đó ở lần chạy đầu: đáy bồn còn cyan trong khi mọi máng cyan
-  // đã đóng. Hiệu ứng loé tách ra thành `flashes` vì nó là hình, không phải luật.
+  // 260ms trong khi DRAIN_MS là 110 — nên hai đơn vị nữa kịp rót vào một cái máng đã
+  // đầy. Nước đó rời bồn nhưng không mở thêm máng nào, nên tổng nước một màu tụt
+  // xuống dưới tổng sức chứa máng màu đó, và bàn thành KHÔNG THỂ giải. Bot demo đâm
+  // vào đúng chỗ đó ở lần chạy đầu. Hiệu ứng loé tách ra thành `flashes` vì nó là
+  // hình, không phải luật.
   if (t.filled >= TROUGH_CAP) { flashes.push({ col: ci, color: t.color, t: 1 }); cols[ci].shift(); }
   return true;
 }
 
 function tapJar(j) {
   if (phase !== "play" || j.gone || j.pouring) return;
-  j.pouring = true;
-  j.poured = 0;
-  j.pourT = 0;
+  j.pouring = true; j.poured = 0; j.pourT = 0;
+}
+
+/** Miệng bình, sau khi nghiêng — dòng nước phải chảy ra từ đây chứ không từ tâm. */
+function mouthOf(j) {
+  const a = j.tilt * 1.15;
+  return { x: j.cx + Math.sin(a) * 42, y: j.cy - Math.cos(a) * 42 };
 }
 
 // ── Loop ─────────────────────────────────────────────────────────────────────
@@ -177,13 +188,14 @@ function step(now, dt) {
       if (!j.pouring) { j.tilt += (0 - j.tilt) * 0.18; continue; }
       j.pourT += dt;
       j.tilt += (1 - j.tilt) * 0.16;
-      // Nghiêng xong mới chảy — nếu đổ ngay từ khung hình đầu thì dòng nước xuất
-      // hiện trước khi cái bình kịp cúi xuống, và cả cú đổ đọc thành "biến mất".
+      // Nghiêng xong mới chảy — nếu rót ngay từ khung hình đầu thì dòng nước xuất
+      // hiện trước khi cái bình kịp cúi xuống, và cả cú rót đọc thành "biến mất".
       if (j.tilt > 0.45) {
-        const want = Math.min(JAR_UNITS, Math.floor((j.pourT - 180) / 62));
+        const want = Math.min(JAR_UNITS, Math.floor((j.pourT - POUR_LEAD) / POUR_MS));
         while (j.poured < want && j.poured < JAR_UNITS) {
           j.poured++; j.units--;
-          streams.push({ x0: j.cx, y0: j.cy + 26, color: j.color, t: 0 });
+          const m = mouthOf(j);
+          streams.push({ x0: m.x, y0: m.y, color: j.color, t: 0 });
           pushUnit(j.color);
         }
       }
@@ -193,22 +205,20 @@ function step(now, dt) {
     if (now - lastDrain > DRAIN_MS) {
       lastDrain = now;
       // ⚠ Bồn rỗng KHÔNG phải tắc. `drain` trả false cả khi không có gì để rút, và
-      // tính đó là tắc thì bàn vừa mở đã báo TẮC rồi thua sau 900ms — nó làm đúng thế
-      // ở lần chạy đầu.
+      // tính đó là tắc thì bàn vừa mở đã báo TẮC rồi thua sau 900ms.
       const moved = drain();
       stalledFor = moved || tank.total === 0 ? 0 : stalledFor + DRAIN_MS;
     }
 
     const jarsDone = jars.every((j) => j.gone);
     if (jarsDone && tank.total === 0) { phase = "win"; msg = "SẠCH BỒN!"; }
-    // Tắc vĩnh viễn: không còn gì để đổ, mà đáy bồn không máng nào nhận.
     else if (jarsDone && stalledFor > 900) { phase = "lose"; msg = "BỒN TẮC!"; }
   }
 
   tank.wob *= 0.94;
   tank.wobPhase += dt * 0.006;
   shake *= 0.9;
-  for (const s of streams) s.t += dt / 260;
+  for (const s of streams) s.t += dt / 300;
   streams = streams.filter((s) => s.t < 1);
   for (const d of drops) d.t += dt / 200;
   drops = drops.filter((d) => d.t < 1);
@@ -238,11 +248,11 @@ function rr(x, y, w, h, r) {
  * sôi, và quan trọng hơn là nó xoá mất chỗ phân cách hai màu — thứ duy nhất cho
  * người chơi biết thứ tự trong bồn.
  */
-function waterTop(x, w, y, amp, phase) {
+function waterTop(x, w, y, amp, ph) {
   ctx.moveTo(x, y);
   for (let i = 0; i <= 24; i++) {
     const t = i / 24;
-    ctx.lineTo(x + t * w, y + Math.sin(phase + t * 7.5) * amp);
+    ctx.lineTo(x + t * w, y + Math.sin(ph + t * 7.5) * amp);
   }
 }
 
@@ -258,11 +268,9 @@ function drawJar(j) {
   // Cổ bình. Vẽ trước thân để mối nối nằm dưới thân, khỏi lộ đường ghép.
   ctx.fillStyle = "rgba(226,240,255,0.34)";
   rr(bw / 2 - 9, -15, 18, 21, 4); ctx.fill();
-
   ctx.fillStyle = "rgba(226,240,255,0.22)";
   rr(0, 0, bw, bh, 14); ctx.fill();
 
-  // Nước trong bình, đo từ đáy lên.
   const lv = j.units / JAR_UNITS;
   if (lv > 0) {
     ctx.save();
@@ -278,7 +286,6 @@ function drawJar(j) {
     ctx.restore();
   }
 
-  // Kính: viền, một vệt sáng dọc bên trái, một vòng sáng ở vai.
   ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 2;
   rr(0, 0, bw, bh, 14); ctx.stroke();
   ctx.fillStyle = "rgba(255,255,255,0.3)";
@@ -286,8 +293,41 @@ function drawJar(j) {
   ctx.restore();
 }
 
+/**
+ * Dòng nước liền từ miệng bình xuống mặt bồn.
+ *
+ * ⚠ **Liền, không phải chuỗi giọt.** Ở nhịp 150ms/đơn vị thì các giọt rời nhau cả
+ * gang tay, và cú rót đọc thành nhỏ giọt chứ không thành rót. Giọt vẫn còn, nhưng
+ * để làm hạt bắn TRÊN dòng, chứ không phải để làm chính cái dòng.
+ */
+function drawPourStream(j) {
+  if (!j.pouring || j.tilt < 0.4 || j.units <= 0) return;
+  const p = PAL[j.color];
+  const m = mouthOf(j);
+  const yEnd = TANK.y + 6;
+  const midY = m.y + (yEnd - m.y) * 0.45;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(m.x - 3.5, m.y);
+  ctx.quadraticCurveTo(m.x + 9, midY, m.x + 5, yEnd);
+  ctx.lineTo(m.x + 11, yEnd);
+  ctx.quadraticCurveTo(m.x + 16, midY, m.x + 3.5, m.y);
+  ctx.closePath();
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = p.base;
+  ctx.fill();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = p.light;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(m.x - 1, m.y);
+  ctx.quadraticCurveTo(m.x + 11, midY, m.x + 7, yEnd);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawTank() {
-  const { x, y, w, h } = TANK;
+  const x = TANK.x, y = TANK.y, w = TANK.w, h = TANK.h;
   const unit = h / TANK_CAP;
 
   ctx.fillStyle = "rgba(10,26,48,0.55)";
@@ -301,8 +341,7 @@ function drawTank() {
   for (let i = 0; i < tank.layers.length; i++) {
     const L = tank.layers[i];
     const p = PAL[L.color];
-    const lh = L.units * unit;
-    const top = cursor - lh;
+    const top = cursor - L.units * unit;
     const isTop = i === tank.layers.length - 1;
     const g = ctx.createLinearGradient(0, top, 0, cursor);
     g.addColorStop(0, p.light); g.addColorStop(0.35, p.base); g.addColorStop(1, p.dark);
@@ -319,9 +358,8 @@ function drawTank() {
   }
 
   // Vùng nguy hiểm: 5 đơn vị cuối. Vẽ ĐÈ lên nước để nó vẫn đỏ khi bị ngập.
-  const dz = y + 3;
   ctx.fillStyle = "rgba(255,60,60,0.16)";
-  ctx.fillRect(x, dz, w, unit * 5);
+  ctx.fillRect(x, y + 3, w, unit * 5);
   ctx.restore();
 
   ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2.5;
@@ -329,7 +367,6 @@ function drawTank() {
   ctx.fillStyle = "rgba(255,255,255,0.22)";
   rr(x + 10, y + 12, 9, h - 30, 4.5); ctx.fill();
 
-  // Bốn vòi, mỗi vòi trên đầu một cột máng.
   for (let i = 0; i < COLS; i++) {
     ctx.fillStyle = "rgba(210,230,255,0.7)";
     rr(spoutX(i) - 11, y + h - 4, 22, 16, 5); ctx.fill();
@@ -340,7 +377,7 @@ function drawTank() {
   ctx.fillStyle = stalledFor > 400 ? "#ff9a9a" : "rgba(210,232,255,0.85)";
   ctx.font = "700 20px system-ui, sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText(`${tank.total} / ${TANK_CAP}`, x + 6, y - 12);
+  ctx.fillText(tank.total + " / " + TANK_CAP, x + 6, y - 12);
   if (stalledFor > 400 && phase === "play") {
     ctx.textAlign = "right";
     ctx.fillText("TẮC — đáy bồn không máng nào nhận", x + w - 6, y - 12);
@@ -357,78 +394,62 @@ function drawTroughs() {
 
       ctx.globalAlpha = open ? 1 : 0.42;
       ctx.fillStyle = "rgba(10,26,48,0.5)";
-      rr(x, y, TR.w, TR.h, 10); ctx.fill();
+      rr(x, y, TR.w, TR.h, 9); ctx.fill();
 
-      if (open) {
+      if (open && t.filled > 0) {
         ctx.save();
-        rr(x + 3, y + 3, TR.w - 6, TR.h - 6, 8); ctx.clip();
-        const lv = t.filled / TROUGH_CAP;
-        const top = y + TR.h - 3 - lv * (TR.h - 6);
-        if (lv > 0) {
-          const g = ctx.createLinearGradient(0, top, 0, y + TR.h);
-          g.addColorStop(0, p.light); g.addColorStop(0.4, p.base); g.addColorStop(1, p.dark);
-          ctx.fillStyle = g;
-          ctx.beginPath();
-          waterTop(x, TR.w, top, 1.8, performance.now() * 0.005 + i);
-          ctx.lineTo(x + TR.w, y + TR.h); ctx.lineTo(x, y + TR.h); ctx.closePath();
-          ctx.fill();
-        }
+        rr(x + 3, y + 3, TR.w - 6, TR.h - 6, 7); ctx.clip();
+        const top = y + TR.h - 3 - (t.filled / TROUGH_CAP) * (TR.h - 6);
+        const g = ctx.createLinearGradient(0, top, 0, y + TR.h);
+        g.addColorStop(0, p.light); g.addColorStop(0.4, p.base); g.addColorStop(1, p.dark);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        waterTop(x, TR.w, top, 1.6, performance.now() * 0.005 + i);
+        ctx.lineTo(x + TR.w, y + TR.h); ctx.lineTo(x, y + TR.h); ctx.closePath();
+        ctx.fill();
         ctx.restore();
       }
 
       // Vành máng mang màu nó nhận — máng rỗng thì đó là thứ duy nhất nói màu gì.
       ctx.fillStyle = p.base;
-      rr(x + 3, y + 2, TR.w - 6, 7, 3.5); ctx.fill();
+      rr(x + 3, y + 2, TR.w - 6, 6, 3); ctx.fill();
       ctx.strokeStyle = open ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.25)";
       ctx.lineWidth = 2;
-      rr(x, y, TR.w, TR.h, 10); ctx.stroke();
+      rr(x, y, TR.w, TR.h, 9); ctx.stroke();
 
       if (open) {
-        ctx.fillStyle = "rgba(255,255,255,0.9)";
-        ctx.font = "700 15px system-ui, sans-serif";
+        ctx.fillStyle = "rgba(255,255,255,0.92)";
+        ctx.font = "700 14px system-ui, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(`${t.filled}/${TROUGH_CAP}`, x + TR.w / 2, y + TR.h - 12);
+        ctx.fillText(t.filled + "/" + TROUGH_CAP, x + TR.w / 2, y + TR.h - 8);
       }
       ctx.globalAlpha = 1;
     }
   }
   for (const f of flashes) {
-    ctx.fillStyle = `rgba(255,255,255,${f.t * 0.85})`;
-    rr(trX(f.col), TR.y0, TR.w, TR.h, 10); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255," + f.t * 0.85 + ")";
+    rr(trX(f.col), TR.y0, TR.w, TR.h, 9); ctx.fill();
   }
 }
 
-function drawStreams() {
-  // Bình → bồn. Một cung parabol, không phải đường thẳng: nước rơi khỏi miệng
-  // bình theo phương ngang trước rồi mới xuống, và đường thẳng đọc thành cái que.
+function drawDrops() {
   for (const s of streams) {
     const p = PAL[s.color];
-    const y1 = TANK.y + 8;
-    const ease = s.t * s.t;
-    const y = s.y0 + (y1 - s.y0) * ease;
-    const x = s.x0 + (TANK.x + TANK.w / 2 - s.x0) * s.t * 0.35;
-    ctx.globalAlpha = 0.9 * (1 - s.t * 0.3);
-    ctx.fillStyle = p.base;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 5.5, 9 + s.t * 6, 0, 0, Math.PI * 2);
-    ctx.fill();
+    const y = s.y0 + (TANK.y + 8 - s.y0) * s.t * s.t;
+    ctx.globalAlpha = 0.55 * (1 - s.t);
     ctx.fillStyle = p.light;
     ctx.beginPath();
-    ctx.ellipse(x - 1.5, y - 2, 2, 3.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(s.x0 + 14 + s.t * 6, y, 2.4, 3.4, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
   }
-  // Vòi → máng.
   for (const d of drops) {
     const p = PAL[d.color];
-    const y1 = TR.y0 + 10;
-    const y = d.y + (y1 - d.y) * d.t * d.t;
-    ctx.globalAlpha = 0.95;
+    const y = d.y + (TR.y0 + 8 - d.y) * d.t * d.t;
     ctx.fillStyle = p.base;
     ctx.beginPath();
     ctx.ellipse(d.x, y, 4.5, 8, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = 1;
   }
 }
 
@@ -444,19 +465,20 @@ function draw() {
   ctx.fillStyle = "rgba(220,238,255,0.9)";
   ctx.font = "700 26px system-ui, sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText("AquaSort", 34, 44);
+  ctx.fillText("AquaSort", 30, 42);
   ctx.font = "600 14px system-ui, sans-serif";
   ctx.fillStyle = "rgba(180,205,235,0.75)";
-  ctx.fillText("chạm bình để đổ — bồn chỉ rút được lớp đáy", 34, 66);
+  ctx.fillText("chạm bình để rót — bồn chỉ rút được lớp đáy", 30, 64);
 
   ctx.textAlign = "right";
   ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.fillText(DEMO ? `demo — thắng ${tally.win} / thua ${tally.lose}` : "R = bàn mới", W - 34, 44);
+  ctx.fillText(DEMO ? "demo — thắng " + tally.win + " / thua " + tally.lose : "R = bàn mới", W - 30, 42);
 
   for (const j of jars) drawJar(j);
+  for (const j of jars) drawPourStream(j);
   drawTank();
   drawTroughs();
-  drawStreams();
+  drawDrops();
 
   if (phase !== "play") {
     ctx.fillStyle = "rgba(6,14,28,0.72)";
@@ -472,33 +494,33 @@ function draw() {
   ctx.restore();
 }
 
-// ── Bot ─────────────────────────────────────────────────────────────────────
+// ── Bot ──────────────────────────────────────────────────────────────────────
 //
 // `?demo` cho nó tự chơi. Không phải để khoe — đây là cách duy nhất kiểm tra được
-// luật thật sự chạy tới thắng, vì một bàn chỉ tắc sau chục nước đổ và ngồi bấm tay
-// thì không lặp lại được cùng một ván.
+// luật có chạy tới thắng hay không, vì một bàn chỉ tắc sau chục nước rót và ngồi
+// bấm tay thì không lặp lại được cùng một ván. `?fast` rút nhịp xuống để soi vài
+// chục bàn liên tiếp; nó không đụng tới luật.
 //
-// ⚠ **Không phải "màu này đang mở thì đổ".** Bản đầu làm đúng thế và tắc hai lần:
-// nó đổ bình vàng thứ hai trong khi 9 đơn vị vàng của bình đầu còn đang rút, mà chỉ
-// có một máng vàng mở — 9 đơn vị thừa nằm lại đáy bồn, máng vàng đóng, hết đường.
+// ⚠ **Không phải "màu này đang mở thì rót".** Bản đầu làm đúng thế và tắc: nó rót
+// bình vàng thứ hai trong khi 9 đơn vị vàng của bình đầu còn đang rút, mà chỉ có
+// một máng vàng mở — phần thừa nằm lại đáy bồn, máng vàng đóng, hết đường. Điều
+// kiện đúng là **chỗ trống còn lại của màu đó trừ đi phần nước màu đó đã nằm trong
+// bồn**, tức "marbles already spoken for" trong scripts/bots.mjs của game gốc — vẫn
+// đúng sau khi băng chuyền biến thành cái bồn.
 //
-// Cái phải đếm là **chỗ trống còn lại của màu đó, trừ đi phần nước màu đó đã nằm
-// trong bồn**. Đây chính là "marbles already spoken for" trong scripts/bots.mjs của
-// game gốc, và nó vẫn là điều kiện đúng sau khi băng chuyền biến thành cái bồn.
+// ⚠ Với TROUGH_CAP = 3 thì "chỗ trống" không còn chỉ là máng ĐANG mở: một bình 9
+// đơn vị cần 3 máng, mà cùng lúc chỉ có 4 cột mở. Nên phải cộng cả máng nằm dưới
+// trong cột, vì chúng sẽ nổi lên khi cái trên đầy. Đó cũng chính là chỗ khó của
+// người chơi — nhìn xuống dưới cột, chứ không chỉ nhìn hàng đầu.
 const Q = new URLSearchParams(location.search);
 const DEMO = Q.has("demo");
-// `?fast` chỉ để chạy kiểm tra: một bàn hết ~10s thay vì ~40s, nên soi được vài chục
-// bàn liên tiếp thay vì một bàn. Không đụng tới luật, chỉ đụng nhịp.
-if (Q.has("fast")) { DRAIN_MS = 26; }
+if (Q.has("fast")) DRAIN_MS = 26;
 const BOT_GAP = Q.has("fast") ? 120 : 420;
 let botAt = 0;
 let tally = { win: 0, lose: 0 };
 let overAt = 0;
 
 function bot(now) {
-  // Hết bàn thì tự mở bàn mới và cộng sổ. Một bàn thắng không chứng minh được gì —
-  // cái cần biết là bộ sinh bàn có đẻ ra bàn bí hay không, và chỉ vài chục bàn liên
-  // tiếp mới trả lời được.
   if (DEMO && phase !== "play") {
     if (!overAt) overAt = now;
     else if (now - overAt > 700) { tally[phase === "win" ? "win" : "lose"]++; overAt = 0; newBoard(); }
@@ -507,10 +529,17 @@ function bot(now) {
   if (!DEMO || phase !== "play" || now - botAt < BOT_GAP) return;
   if (jars.some((j) => j.pouring)) return;
   if (tank.total + JAR_UNITS > TANK_CAP) return;
-  const room = {};
-  for (let i = 0; i < COLS; i++) { const a = active(i); if (a) room[a.color] = (room[a.color] || 0) + (TROUGH_CAP - a.filled); }
+
   const held = {};
   for (const L of tank.layers) held[L.color] = (held[L.color] || 0) + L.units;
+
+  const room = {};
+  for (let i = 0; i < COLS; i++) {
+    for (let k = 0; k < Math.min(3, cols[i].length); k++) {
+      const t = cols[i][k];
+      room[t.color] = (room[t.color] || 0) + (k === 0 ? TROUGH_CAP - t.filled : TROUGH_CAP);
+    }
+  }
   const pick = jars.find((j) => !j.gone && (room[j.color] || 0) - (held[j.color] || 0) >= JAR_UNITS);
   if (pick) { botAt = now; tapJar(pick); }
 }
@@ -530,7 +559,7 @@ cv.addEventListener("pointerdown", (e) => {
   const x = ((e.clientX - r.left) / r.width) * W;
   const y = ((e.clientY - r.top) / r.height) * H;
   for (const j of jars) {
-    if (!j.gone && Math.abs(x - j.cx) < 36 && Math.abs(y - j.cy) < 42) { tapJar(j); return; }
+    if (!j.gone && Math.abs(x - j.cx) < 40 && Math.abs(y - j.cy) < 42) { tapJar(j); return; }
   }
 });
 window.addEventListener("keydown", (e) => { if (e.key === "r" || e.key === "R") newBoard(); });

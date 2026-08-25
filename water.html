@@ -347,7 +347,14 @@ const pourable = (t) => (t.kind === "jar" || t.kind === "pair") && !t.hidden && 
 const liftable = (t) => pourable(t) && canEscape(t);
 
 function tapTile(t) {
-  if (phase !== "play" || !t || !liftable(t)) return;
+  if (phase !== "play" || !t) return;
+  // ⚠ Chạm vào chai bị nhốt phải có phản hồi RIÊNG, không phải im lặng. Tài liệu xếp
+  // "sai" ngang hàng với "đúng" trong P0, và đúng thế: im lặng thì người chơi không
+  // biết mình bấm trượt hay game đơ. Rung ngang 2–3 nhịp, không cần mạnh hơn.
+  if (!liftable(t)) {
+    if (t.pots && !t.pouring) { t.nope = 1; sndNope(); }
+    return;
+  }
   // ⚠ Phản hồi chạm: bình nảy một nhịp rồi mới nghiêng. Không có nó thì trong 200ms
   // đầu — đúng khoảng thời gian ngón tay còn che mất cái bình — một cú chạm hợp lệ
   // và một cú chạm vào bình bị khoá phản hồi giống hệt nhau: không gì cả.
@@ -426,6 +433,9 @@ function pushUnit(color) {
   else tank.layers.push({ color, units: 1 });
   tank.total++;
   tank.wob = Math.min(1, tank.wob + 0.2);
+  // Bồn giật một nhịp mỗi lần nhận nước — cùng thứ mà `wob` làm cho mặt nước, nhưng
+  // cho cả cái bồn. Không có nó thì nước "xuất hiện" trong bồn chứ không "rơi vào".
+  tank.jolt = Math.min(3, (tank.jolt || 0) + 1.6);
   if (tank.total > TANK_CAP) {
     phase = "lose"; msg = "TRÀN BỒN!"; shake = 1;
     // Màu nước tràn ra lấy từ chính các dải đang có, lớp trên trước — tràn là hậu
@@ -505,7 +515,10 @@ function drain() {
  */
 function mouthOf(p) {
   const a = p.tilt * TILT_MAX;
-  const x = p.px ?? cellX(p.cell[0]), y = p.py ?? cellY(p.cell[1]);
+  let x = p.px ?? cellX(p.cell[0]);
+  const y = p.py ?? cellY(p.cell[1]);
+  // Rung ngang khi bị từ chối — biên độ tắt dần, ba nhịp trong 300ms.
+  if (nope > 0) x += Math.sin(nope * Math.PI * 6) * nope * 7;
   const hx = 23, hy = 23;
   return { x: x + hx * Math.cos(a) + hy * Math.sin(a), y: y + hx * Math.sin(a) - hy * Math.cos(a) };
 }
@@ -594,6 +607,7 @@ function step(now, dt) {
   }
 
   tank.wob *= 0.94;
+  tank.jolt = (tank.jolt || 0) * 0.82;
   tank.wobPhase += dt * 0.006;
   shake *= 0.9;
   for (const s of streams) s.t += dt / 300;
@@ -615,7 +629,8 @@ function step(now, dt) {
   for (const s of shelved) s.t += dt / 760;
   shelved = shelved.filter((s) => s.t < 1);
   for (const t of tiles) if (t.pop > 0) t.pop = Math.max(0, t.pop - dt / POP_MS);
-  for (const t of tiles) if (t.tap > 0) t.tap = Math.max(0, t.tap - dt / 260);
+  for (const t of tiles) if (t.tap > 0) t.tap = Math.max(0, t.tap - dt / 140);
+  for (const t of tiles) if (t.nope > 0) t.nope = Math.max(0, t.nope - dt / 300);
 }
 
 
@@ -733,6 +748,23 @@ function sndPour(dur) {
 }
 
 
+/** Tiếng "cụp" ngắn, trầm khi chạm vào chai chưa mở được. */
+function sndNope() {
+  const ac = audio();
+  if (!ac) return;
+  const t0 = ac.currentTime;
+  const o = ac.createOscillator();
+  const g = ac.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(230, t0);
+  o.frequency.exponentialRampToValueAtTime(150, t0 + 0.09);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.13);
+  o.connect(g).connect(ac.destination);
+  o.start(t0); o.stop(t0 + 0.15);
+}
+
 /** Tiếng "cạch" thuỷ tinh khi một chai đầy — hai nốt ngắn, nốt trên lệch quãng năm. */
 function sndClink() {
   const ac = audio();
@@ -791,6 +823,24 @@ function rr(x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, k);
   ctx.arcTo(x, y, x + w, y, k);
   ctx.closePath();
+}
+
+/**
+ * Độ lệch cố định của từng ô: xoay 1–3°, phóng 97–103%.
+ *
+ * ⚠ Băm từ toạ độ ô, KHÔNG random. Một cái chai đổi độ nghiêng giữa hai khung hình
+ * là cái chai đang rung; nó phải lệch một lần rồi giữ nguyên như thế cả ván. Cũng vì
+ * vậy mà mọi lần vẽ lại cùng một bàn cho ra cùng một bố cục.
+ *
+ * ⚠ Lệch RẤT nhỏ. Cái cần phá là cảm giác "mọi vật dán lên lưới toạ độ", không phải
+ * làm bàn cờ xộc xệch — quá 3° là bắt đầu đọc thành lỗi căn chỉnh.
+ */
+function jitter(c, r) {
+  const h = ((c * 73856093) ^ (r * 19349663)) >>> 0;
+  return {
+    rot: (((h % 1000) / 1000) - 0.5) * 0.09,
+    scale: 0.97 + ((h >>> 10) % 1000) / 1000 * 0.06,
+  };
 }
 const fillRR = (x, y, w, h, r, s) => { rr(x, y, w, h, r); ctx.fillStyle = s; ctx.fill(); };
 
@@ -1008,7 +1058,7 @@ function drawCavity() {
   }
 }
 
-function drawPot(p, locked, hidden, pop, tap) {
+function drawPot(p, locked, hidden, pop, tap, nope) {
   const bw = 46, bh = 54;
   // Vẽ tại vị trí `step` vừa tính — trong lúc bay, chai không còn ở ô của nó.
   const x = p.px ?? cellX(p.cell[0]), y = p.py ?? cellY(p.cell[1]);
@@ -1022,10 +1072,20 @@ function drawPot(p, locked, hidden, pop, tap) {
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
+  // Bóng đổ mềm dưới đáy chai — thứ đặt nó ĐỨNG TRÊN sàn khoang thay vì trôi trên đó.
+  ctx.globalAlpha = 0.16;
+  ctx.fillStyle = "#33406a";
+  ctx.beginPath(); ctx.ellipse(x + 1, y + bh / 2 - 1, bw * 0.36, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  const j = jitter(p.cell[0], p.cell[1]);
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(1 + tap * 0.11, 1 + tap * 0.11);
-  ctx.rotate(p.tilt * TILT_MAX);
+  // Tap phóng 1.06 trong ~130ms, đúng khoảng tài liệu đề nghị. 1.11 như trước đọc
+  // thành cái chai nảy dựng lên, không thành "đã nhận cú chạm".
+  const s = (1 + tap * 0.06) * j.scale;
+  ctx.scale(s, s);
+  ctx.rotate(p.tilt * TILT_MAX + (1 - Math.min(1, p.tilt * 3)) * j.rot);
   ctx.translate(-bw / 2, -bh / 2);
 
   // ⚠ Cùng `bottlePath` với chai ở khu máng — cổ hẹp, hai vai cong trượt ra thân. Hai
@@ -1063,8 +1123,10 @@ function drawPot(p, locked, hidden, pop, tap) {
     ctx.restore();
   }
 
-  ctx.strokeStyle = locked ? "rgba(70,90,124,0.75)" : "rgba(88,112,155,0.6)";
-  ctx.lineWidth = 2;
+  // Viền dày lên 2 -> 2.7: tài liệu đề nghị +20–35%, và nó là thứ tách chai khỏi sàn
+  // khoang trắng mà không phải thêm bóng.
+  ctx.strokeStyle = locked ? "rgba(70,90,124,0.8)" : "rgba(84,108,152,0.72)";
+  ctx.lineWidth = 2.7;
   bottlePath(0, 0, bw, bh); ctx.stroke();
   fillRR(7, 8, 5, bh - 20, 2.5, "rgba(255,255,255,0.5)");
 
@@ -1291,7 +1353,7 @@ function drawTiles() {
     const locked = !liftable(t) && !t.pouring && !t.hidden;
     drawQueue(t);
     if (t.kind === "pair") drawClip(t);
-    for (const p of t.pots) drawPot(p, locked, t.hidden, t.pop || 0, t.tap || 0);
+    for (const p of t.pots) drawPot(p, locked, t.hidden, t.pop || 0, t.tap || 0, t.nope || 0);
   }
 }
 
@@ -1352,6 +1414,9 @@ function drawPourStreams() {
  */
 function drawTank() {
   const { x, y, w, h } = TANK;
+  const jolt = tank.jolt || 0;
+  ctx.save();
+  if (jolt > 0.05) ctx.translate(0, Math.sin(performance.now() / 22) * jolt);
   const unit = h / TANK_CAP;
   const cx = x + w / 2;
 
@@ -1428,6 +1493,7 @@ function drawTank() {
   }
   ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 1.2;
   rr(gx, gy, gw, gh, 5); ctx.stroke();
+  ctx.restore();
 }
 /**
  * Đường ống từ đáy bồn vòng sang trái, leo lên, rồi thanh phân phối xả xuống bốn cột.
@@ -1458,10 +1524,26 @@ function drawPipes() {
     ctx.lineTo(xEnd, yTop);
   };
 
+  // ⚠ Ống có hai trạng thái, không phải một hình tĩnh. Lúc nghỉ nó nhạt và ít tương
+  // phản; lúc có nước chạy, cả thân ống ngả sang màu nước. Không có vế đó thì cái ống
+  // chỉ là trang trí — người chơi không đọc được "đường này ĐANG hoạt động" từ chính
+  // cái ống, mà phải suy ra từ dòng nước bên trong nó.
+  const act = Math.min(1, pipe.on * 2.2);
+  const glow = PAL[pipe.color];
   ctx.lineCap = "round"; ctx.lineJoin = "round";
-  for (const [wgt, col] of [[19, "#7d90b4"], [15, UI.machineEdge], [9, "#eef3fb"]]) {
+  for (const [wgt, col] of [[19, "#8ea3c4"], [15, UI.machineEdge], [9, "#eef3fb"]]) {
     ctx.strokeStyle = col; ctx.lineWidth = wgt;
     path(); ctx.stroke();
+  }
+  if (act > 0) {
+    ctx.save();
+    ctx.globalAlpha = act * 0.35;
+    ctx.strokeStyle = glow.light; ctx.lineWidth = 21;
+    path(); ctx.stroke();
+    ctx.globalAlpha = act * 0.22;
+    ctx.strokeStyle = glow.base; ctx.lineWidth = 15;
+    path(); ctx.stroke();
+    ctx.restore();
   }
 
   // ⚠ Dòng nước vẽ MẢNH — 4px trong lòng ống 9px, chừa thành ống hai bên. Tô gần kín
@@ -1800,18 +1882,25 @@ function drawTroughs() {
   for (let i = 0; i < COLS; i++) {
     const hidden = cols[i].length - Math.min(TR_VISIBLE, cols[i].length);
     if (hidden <= 0) continue;
-    const bxc = trX(i) + TR.w / 2 - 12;
-    const byc = TR_CUT + 8;
-    ctx.globalAlpha = 0.75;
-    fillRR(bxc - 4, byc - 4, 8, 3, 1.5, "#6b7ea6");
-    fillRR(bxc - 6, byc, 12, 14, 3, "#eaeff9");
-    ctx.strokeStyle = "#6b7ea6"; ctx.lineWidth = 1.2;
-    rr(bxc - 6, byc, 12, 14, 3); ctx.stroke();
+    // ⚠ Badge là một BONG BÓNG tròn, không phải con số đặt dưới khoang. Số trần nằm
+    // trên nền giếng đọc thành chú thích kỹ thuật; một cái bong bóng nổi có viền là
+    // một phần của trò chơi. Nội dung không đổi: còn bao nhiêu chai trong cột.
+    const bxc = trX(i) + TR.w / 2;
+    const byc = TR_CUT + 15;
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = "#33406a";
+    ctx.beginPath(); ctx.ellipse(bxc, byc + 13, 13, 4, 0, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "rgba(70,90,130,0.95)";
-    ctx.font = "700 14px system-ui, sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText(String(hidden), bxc + 10, byc + 12);
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath(); ctx.arc(bxc, byc, 13, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#8ea3c4"; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.arc(bxc, byc, 13, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath(); ctx.ellipse(bxc - 4, byc - 5, 4.5, 3, -0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#4d5c78";
+    ctx.font = "700 15px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(String(hidden), bxc, byc + 5);
   }
   // Bóng ma của thứ vừa vỡ: nở ra rồi tan, vẽ SAU cả lưới nên nó nằm trên cái đang
   // trượt lên — cái cũ tan để lộ cái mới bên dưới.

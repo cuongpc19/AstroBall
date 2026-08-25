@@ -112,7 +112,9 @@ const LID_LOAD = 4;        // số bình dưới mỗi tấm socola — game cũ
 // để rót tiếp trước khi bồn kịp vơi, tức là làm bàn dễ đi một chút.
 let DRAIN_MS = 575;
 const POUR_MS = 150;
-const POUR_LEAD = 220;
+const POUR_LEAD = 140;
+// Chai bay từ ô của nó ra trước bồn trong chừng này rồi mới nghiêng.
+const FLY_MS = 380;
 // ⚠ 25°. Thân bình gần vuông để vừa một ô lưới, mà hình gần vuông xoay 45° thì
 // thành hình THOI — mất sạch dấu hiệu "cái bình", và với mặt nước nằm ngang ở đáy
 // nó đọc thành phễu đồng hồ cát. 66° và 46° đều hỏng đúng kiểu đó.
@@ -194,6 +196,8 @@ let phase, stalledFor, shake, msg, overflow;
 let pipe = { on: 0, color: "cyan" };
 // Hạt bắn ra lúc một chai đầy — chỉ là hình, không có luật nào đọc nó.
 let sparks = [];
+// Chai đã đầy đang bay lên kệ, và số thứ tự ô kệ tiếp theo.
+let shelved = [], shelfN = 0;
 
 // ⚠ Không còn hàm ngẫu nhiên nào trong file này, và đó là chủ ý. Bàn đọc thẳng từ
 // blueprint — cùng level là cùng bàn, mọi lần, trên mọi máy. Thêm lại một `Math.
@@ -288,7 +292,7 @@ function buildLevel(lv) {
   cols = bp.columns.map((col) => col.map((ci) => ({ color: colorOf(ci), filled: 0 })));
 
   tank = { layers: [], total: 0, wob: 0, wobPhase: 0 };
-  streams = []; drops = []; flashes = []; sparks = [];
+  streams = []; drops = []; flashes = []; sparks = []; shelved = []; shelfN = 0;
   slide = new Array(COLS).fill(0);
   phase = "play"; stalledFor = 0; shake = 0; msg = ""; overflow = null;
 }
@@ -348,7 +352,8 @@ function tapTile(t) {
   // đầu — đúng khoảng thời gian ngón tay còn che mất cái bình — một cú chạm hợp lệ
   // và một cú chạm vào bình bị khoá phản hồi giống hệt nhau: không gì cả.
   t.tap = 1;
-  sndPour((POUR_LEAD + JAR_UNITS * POUR_MS) / 1000);
+  // Tiếng rót hoãn lại đúng bằng thời gian bay: nước chưa chảy thì chưa có tiếng.
+  setTimeout(() => sndPour((POUR_LEAD + JAR_UNITS * POUR_MS) / 1000), FLY_MS);
   t.pouring = true; t.pourT = 0;
   for (const p of t.pots) p.poured = 0;
 }
@@ -475,6 +480,13 @@ function drain() {
           vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1.2, t: 1,
         });
       }
+      // ⚠ Chai đầy BAY LÊN KỆ chứ không tan tại chỗ. Cái kệ hai bên tủ vốn chỉ là hình
+      // trang trí; cho chai đã xong bay lên đó thì nó thành chỗ CẤT THÀNH QUẢ, và người
+      // chơi có một cái đếm tiến độ nhìn thấy được mà không cần thêm một con số nào.
+      shelved.push({
+        x0: spoutX(i), y0: TR.y0 + TR.h / 2, color: t.color,
+        to: shelfSlot(shelfN++), t: 0,
+      });
       sndClink();
       slide[i] = 1;
       cols[i].shift();
@@ -484,12 +496,23 @@ function drain() {
   return moved;
 }
 
-/** Miệng bình: **góc dưới của vành sau khi nghiêng**, chỗ nước thật sự tràn qua. */
+/**
+ * Chỗ nước tràn qua vành — góc dưới của miệng chai sau khi nghiêng.
+ *
+ * ⚠ Đọc `p.px/p.py` chứ không đọc ô của chai. Từ lúc có animation bay, chai không
+ * còn đứng yên ở ô của nó trong lúc rót; tính miệng từ ô thì dòng nước bắn ra từ
+ * chỗ cái chai vừa rời đi.
+ */
 function mouthOf(p) {
   const a = p.tilt * TILT_MAX;
-  const x = cellX(p.cell[0]), y = cellY(p.cell[1]);
+  const x = p.px ?? cellX(p.cell[0]), y = p.py ?? cellY(p.cell[1]);
   const hx = 23, hy = 23;
   return { x: x + hx * Math.cos(a) + hy * Math.sin(a), y: y + hx * Math.sin(a) - hy * Math.cos(a) };
+}
+
+/** Chỗ chai bay tới để rót: lơ lửng ngay trên miệng bồn. */
+function flyTarget(i) {
+  return { x: TANK.x + TANK.w / 2 - 8 + i * 24, y: TANK.y - 64 };
 }
 
 // ── Loop ─────────────────────────────────────────────────────────────────────
@@ -519,10 +542,34 @@ function step(now, dt) {
 
     for (const t of tiles.slice()) {
       if (!t.pots) continue;
-      if (!t.pouring) { for (const p of t.pots) p.tilt += (0 - p.tilt) * 0.18; continue; }
+      if (!t.pouring) {
+        for (const p of t.pots) {
+          p.tilt += (0 - p.tilt) * 0.18;
+          p.px = cellX(p.cell[0]); p.py = cellY(p.cell[1]);
+        }
+        continue;
+      }
       t.pourT += dt;
+      // ⚠ **Bay trước, rót sau.** Chai rời ô của nó, vọt theo một vòng cung ra lơ lửng
+      // trên miệng bồn, rồi mới nghiêng. Rót ngay tại ô thì dòng nước phải bắn ngang
+      // 400px và người chơi phải TIN rằng nó tới được bồn; cho cái chai tự đi tới đó
+      // thì không còn gì phải tin.
+      //
+      // ⚠ Vị trí ghi vào `p.px/p.py` ở ĐÂY, trong bước cập nhật, chứ không tính lại
+      // lúc vẽ. `mouthOf` cũng đọc hai giá trị đó, nên miệng chai và dòng nước không
+      // thể lệch nhau — mà lệch một khung hình là dòng nước rời khỏi cái chai.
+      const fly = Math.min(1, t.pourT / FLY_MS);
+      t.fly = fly;
+      const e = fly * fly * (3 - 2 * fly);
+      t.pots.forEach((p, i) => {
+        const hx = cellX(p.cell[0]), hy = cellY(p.cell[1]);
+        const d = flyTarget(i);
+        p.px = hx + (d.x - hx) * e;
+        p.py = hy + (d.y - hy) * e - Math.sin(Math.PI * e) * 34;
+      });
+      if (fly < 1) continue;
       for (const p of t.pots) p.tilt += (1 - p.tilt) * 0.16;
-      const want = Math.min(JAR_UNITS, Math.floor((t.pourT - POUR_LEAD) / POUR_MS));
+      const want = Math.min(JAR_UNITS, Math.floor((t.pourT - FLY_MS - POUR_LEAD) / POUR_MS));
       for (const p of t.pots) {
         while (p.poured < want && p.units > 0) {
           p.poured++; p.units--;
@@ -565,6 +612,8 @@ function step(now, dt) {
     s.x += s.vx; s.y += s.vy; s.vy += 0.16; s.t -= dt / 620;
   }
   sparks = sparks.filter((s) => s.t > 0);
+  for (const s of shelved) s.t += dt / 760;
+  shelved = shelved.filter((s) => s.t < 1);
   for (const t of tiles) if (t.pop > 0) t.pop = Math.max(0, t.pop - dt / POP_MS);
   for (const t of tiles) if (t.tap > 0) t.tap = Math.max(0, t.tap - dt / 260);
 }
@@ -841,6 +890,21 @@ function shelfBottle(x, y, color) {
 }
 
 /**
+ * Ô kệ thứ `n` trên hai giá bên hông tủ — chỗ một chai đã đầy bay tới.
+ *
+ * ⚠ Toạ độ ở đây phải khớp với `drawRacks`. Hai chỗ cùng đọc một hình mà tính riêng
+ * thì sớm muộn chai sẽ đáp xuống bên cạnh cái kệ.
+ */
+function shelfSlot(n) {
+  const side = n % 2;
+  const k = (n / 2) | 0;
+  const row = k % 5;
+  const col = ((k / 5) | 0) % 2;
+  const x = side ? MACH.x + MACH.w - 76 : MACH.x + 12;
+  return { x: x + (col ? 46 : 16), y: MACH.y + 34 + row * 54 + 6 };
+}
+
+/**
  * Hai giá kệ dọc hai bên khoang, mỗi tầng vài chai — cái tủ chứa bình nước.
  *
  * ⚠ Cắt theo thân tủ và vẽ TRƯỚC khoang. Bàn cờ rộng hẹp tuỳ level, nên kệ và
@@ -946,7 +1010,8 @@ function drawCavity() {
 
 function drawPot(p, locked, hidden, pop, tap) {
   const bw = 46, bh = 54;
-  const x = cellX(p.cell[0]), y = cellY(p.cell[1]);
+  // Vẽ tại vị trí `step` vừa tính — trong lúc bay, chai không còn ở ô của nó.
+  const x = p.px ?? cellX(p.cell[0]), y = p.py ?? cellY(p.cell[1]);
   if (tap > 0) {
     // Vòng sáng lan ra từ chính cái bình vừa chạm — nó nói "đã nhận", ở đúng chỗ ngón
     // tay vừa rời đi.
@@ -1219,8 +1284,10 @@ function drawTiles() {
     if (t.kind === "crate") drawCrate(t);
     else if (t.kind === "lid") drawLid(t);
   }
-  for (const t of tiles) {
-    if (!t.pots) continue;
+  // Chai đang bay vẽ SAU cùng: nó rời khỏi lưới và đi ngang qua các ô khác, nên phải
+  // nằm trên chúng — không thì nó chui xuống dưới đúng lúc đang là thứ được nhìn.
+  const order = tiles.filter((t) => t.pots).sort((a, b) => (a.pouring ? 1 : 0) - (b.pouring ? 1 : 0));
+  for (const t of order) {
     const locked = !liftable(t) && !t.pouring && !t.hidden;
     drawQueue(t);
     if (t.kind === "pair") drawClip(t);
@@ -1436,13 +1503,17 @@ function drawPipes() {
   ctx.beginPath(); ctx.arc(vx + 19, vy - 10, 5, 0, Math.PI * 2); ctx.fill();
 
   // ── Thanh phân phối ───────────────────────────────────────────────────────
-  fillRR(MANI.x, MANI.y + 4, MANI.w, MANI.h, 10, "#7d90b4");
+  // ⚠ Bo tròn hẳn hai đầu (bán kính = nửa chiều cao) và viền dày: một thanh bo 10 với
+  // nét mảnh là thanh kim loại kỹ thuật, cùng hình đó bo hết cỡ là một món đồ chơi.
+  fillRR(MANI.x, MANI.y + 5, MANI.w, MANI.h, MANI.h / 2, "#8ea3c4");
   const mg = ctx.createLinearGradient(0, MANI.y, 0, MANI.y + MANI.h);
   mg.addColorStop(0, "#fdfeff");
   mg.addColorStop(0.55, "#dfe7f5");
   mg.addColorStop(1, "#c3cee2");
-  fillRR(MANI.x, MANI.y, MANI.w, MANI.h, 10, mg);
-  fillRR(MANI.x + 5, MANI.y + 3, MANI.w - 10, 5, 2.5, "rgba(255,255,255,0.95)");
+  fillRR(MANI.x, MANI.y, MANI.w, MANI.h, MANI.h / 2, mg);
+  fillRR(MANI.x + 9, MANI.y + 4, MANI.w - 18, 6, 3, "rgba(255,255,255,0.95)");
+  ctx.strokeStyle = "#8ea3c4"; ctx.lineWidth = 2;
+  rr(MANI.x, MANI.y, MANI.w, MANI.h, MANI.h / 2); ctx.stroke();
   if (pipe.on > 0) {
     const a2 = Math.min(1, pipe.on * 2.2);
     ctx.save();
@@ -1469,22 +1540,22 @@ function drawPipes() {
   // Vòng đai chia khoang — thanh trơn dài 350px đọc thành một cái gạch.
   for (let i = 1; i < COLS; i++) {
     const cx = (spoutX(i - 1) + spoutX(i)) / 2;
-    fillRR(cx - 4, MANI.y - 2, 8, MANI.h + 4, 3, "#aebbd4");
+    fillRR(cx - 5, MANI.y - 1, 10, MANI.h + 2, 5, "#aebbd4");
   }
 
   // Đầu rót trên mỗi cột: phễu thu nhỏ dần rồi tới miệng vòi.
+  // ⚠ Đầu rót là cái BẦU TRÒN, không phải phễu hình thang. Hình thang có ba cạnh
+  // thẳng và hai góc nhọn — đúng một cái phễu kỹ thuật, và nó là chi tiết cứng nhất
+  // trong cả khu này. Một cái bầu tròn có núm ở dưới đọc ra cùng chức năng mà mềm.
   for (let i = 0; i < COLS; i++) {
     const sx = spoutX(i), sy = MANI.y + MANI.h;
     ctx.beginPath();
-    ctx.moveTo(sx - 11, sy - 1);
-    ctx.lineTo(sx + 11, sy - 1);
-    ctx.lineTo(sx + 5, sy + 12);
-    ctx.lineTo(sx - 5, sy + 12);
+    ctx.ellipse(sx, sy + 2, 12, 9, 0, 0, Math.PI);
     ctx.closePath();
-    ctx.fillStyle = "#cbd6e8"; ctx.fill();
-    ctx.strokeStyle = "#8fa0bf"; ctx.lineWidth = 1.4; ctx.stroke();
-    fillRR(sx - 5, sy + 11, 10, 7, 2, "#7d90b4");
-    fillRR(sx - 3.5, sy + 12, 7, 4, 1.5, "#4d5c78");
+    ctx.fillStyle = "#dae3f2"; ctx.fill();
+    ctx.strokeStyle = "#8ea3c4"; ctx.lineWidth = 2; ctx.stroke();
+    fillRR(sx - 6, sy + 8, 12, 9, 4.5, "#8ea3c4");
+    fillRR(sx - 4, sy + 9, 8, 6, 3, "#5f7196");
   }
 }
 
@@ -1572,22 +1643,35 @@ function drawOverflow() {
   }
   ctx.globalAlpha = 1;
 }
+/**
+ * Giếng chứa các cột chai.
+ *
+ * ⚠ **Mềm và ấm, không phải một cái khay kỹ thuật.** Bản trước là chữ nhật bo 24 tô
+ * trắng lạnh với vành slate mảnh, và nó đọc thành một mảnh giao diện chứ không thành
+ * đồ vật. Ba thứ đổi nó: bán kính bo LỚN hẳn (24 -> 40, gần bằng nửa chiều cao khe),
+ * một nét bao dày kiểu mực vẽ tay, và sàn ngả kem thay vì trắng xanh. Cùng một hình
+ * học, khác hẳn chất.
+ *
+ * ⚠ Giếng chỉ ôm khu cột, không kéo hết bề ngang tủ — bồn đứng bên phải và một cái
+ * giếng full-width sẽ phủ đè lên nó.
+ */
 function drawWell() {
-  // ⚠ Giếng chỉ ôm KHU CỘT, không kéo hết bề ngang tủ nữa — bồn giờ đứng bên phải và
-  // một cái giếng full-width sẽ phủ đè lên nó. Bám theo `MANI` vì thanh phân phối là
-  // thứ định ra bề ngang của khu này.
   const top = TR.y0 - 14;
-  // Giếng kết thúc ngay dưới chỗ cắt cộng chỗ cho badge, chứ không chạy tới đáy tủ —
-  // để một khoảng trắng dài bên dưới hàng bị xén thì cái xén đọc thành lỗi vẽ.
+  // Kết thúc ngay dưới chỗ xén cộng chỗ cho badge, không chạy tới đáy tủ: để hở một
+  // khoảng trắng dài dưới hàng bị xén thì cái xén đọc thành lỗi vẽ.
   const hgt = TR_CUT + 30 - top;
-  // ⚠ Vành ngoài giếng đậm hơn `panelDeep` một bậc. Giếng, sàn khoang và thân tủ đều
-  // là ba sắc trắng-xám cách nhau vài phần trăm, nên ở tông cũ cái giếng không có
-  // đường bao — nó chỉ là một mảng hơi khác màu trên tủ. Đây là thứ khoanh vùng "chỗ
-  // nước chảy tới", nên nó phải có cạnh.
-  fillRR(MANI.x - 4, top - 7, MANI.w + 8, hgt + 7, 30, "#7d90b4");
-  fillRR(MANI.x + 3, top, MANI.w - 6, hgt, 24, UI.panel);
-  for (let i = 0; i < COLS; i++)
-    fillRR(trX(i) - 3, top + 8, TR.w + 6, hgt - 14, 12, "rgba(159,176,203,0.22)");
+  const x = MANI.x - 6, w = MANI.w + 12;
+  // Bóng đổ mềm dưới đáy — thứ nhấc cả cụm ra khỏi mặt tủ.
+  fillRR(x + 4, top + 4, w - 8, hgt + 4, 40, "rgba(86,104,142,0.20)");
+  fillRR(x, top - 8, w, hgt + 8, 40, "#8ea3c4");
+  fillRR(x + 5, top - 3, w - 10, hgt - 2, 36, "#fbf7f0");
+  for (let i = 0; i < COLS; i++) {
+    // Khe cột: hốc bo tròn hẳn, có viền trong mảnh — đọc thành chỗ ĐẶT chai, không
+    // thành một ô kẻ.
+    fillRR(trX(i) - 4, top + 6, TR.w + 8, hgt - 20, 22, "rgba(150,170,205,0.20)");
+    ctx.strokeStyle = "rgba(142,163,196,0.45)"; ctx.lineWidth = 1.6;
+    rr(trX(i) - 4, top + 6, TR.w + 8, hgt - 20, 22); ctx.stroke();
+  }
 }
 
 /**
@@ -1789,6 +1873,32 @@ function draw() {
   drawPipes();
   drawTroughs();
   drawDrops();
+  // Chai đã đầy đang bay lên kệ.
+  //
+  // ⚠ Bay theo vòng cung và NHỎ DẦN, không trượt thẳng. Đường thẳng cộng kích thước
+  // không đổi đọc thành một mảnh UI bị kéo đi; cung cộng thu nhỏ đọc thành một vật
+  // được nhấc lên và cất vào chỗ xa hơn. Nhạt dần ở đoạn cuối để nó hoà vào đúng cái
+  // chai tĩnh mà `drawRacks` đã vẽ sẵn ở ô đó.
+  for (const s of shelved) {
+    const e = s.t * s.t * (3 - 2 * s.t);
+    const x = s.x0 + (s.to.x - s.x0) * e;
+    const y = s.y0 + (s.to.y - s.y0) * e - Math.sin(Math.PI * e) * 60;
+    const k = 1 - 0.55 * e;
+    const p = PAL[s.color];
+    ctx.save();
+    ctx.globalAlpha = s.t > 0.82 ? (1 - s.t) / 0.18 : 1;
+    ctx.translate(x, y);
+    ctx.scale(k, k);
+    fillRR(-8, -30, 16, 9, 3, p.dark);
+    bottlePath(-15, -22, 30, 44);
+    ctx.fillStyle = "#ece7e0"; ctx.fill();
+    ctx.strokeStyle = "#b3a99c"; ctx.lineWidth = 2; ctx.stroke();
+    bottlePath(-10, -17, 20, 34);
+    ctx.fillStyle = p.base; ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+
   for (const s of sparks) {
     ctx.globalAlpha = s.t * s.t;
     ctx.fillStyle = PAL[s.color].light;

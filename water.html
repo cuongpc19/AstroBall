@@ -1387,16 +1387,32 @@ function drawPipes() {
     ctx.lineTo(MANI.x + MANI.w - 10, yTop);
     ctx.stroke();
   }
-  // ⚠ Nước trong ống: nét đứt cùng đường đi, dịch pha theo thời gian. Vẽ ĐÈ lên lòng
-  // ống và DƯỚI các khớp nối, nên nó đọc thành nước chảy BÊN TRONG chứ không thành
-  // một sợi dây màu quấn ngoài.
+
+  // ⚠ Nước trong ống vẽ thành MỘT DÒNG LIỀN, chỉ có vài vệt sáng trôi chậm trên đó.
+  //
+  // Bản trước là nét đứt 17/13 chạy ở ~110px/s: nó đọc thành một băng chuyền hạt, và
+  // ở nhịp đó mắt bắt được từng khúc rời nên cả cái ống giật liên tục. Nước trong ống
+  // thì lúc nào cũng đầy — thứ duy nhất chuyển động là ánh sáng lướt trên mặt nó. Nên
+  // đổi thành: một dòng đặc, cộng vệt sáng thưa (10 sáng / 46 tối) trôi chậm hơn ba
+  // lần. Vẫn thấy rõ là đang chảy, mà không còn nhấp nháy.
   if (pipe.on > 0) {
+    const a = Math.min(1, pipe.on * 2.2);
     ctx.save();
+    ctx.lineCap = "butt";
     ctx.strokeStyle = PAL[pipe.color].base;
-    ctx.globalAlpha = 0.92 * Math.min(1, pipe.on * 2.2);
+    ctx.globalAlpha = 0.7 * a;
     ctx.lineWidth = 9;
-    ctx.setLineDash([17, 13]);
-    ctx.lineDashOffset = -(performance.now() / 9) % 30;
+    ctx.beginPath();
+    ctx.moveTo(TANK.x + 8, yBot);
+    ctx.lineTo(px, yBot);
+    ctx.lineTo(px, yTop);
+    ctx.lineTo(MANI.x + MANI.w - 10, yTop);
+    ctx.stroke();
+    ctx.strokeStyle = PAL[pipe.color].light;
+    ctx.globalAlpha = 0.5 * a;
+    ctx.lineWidth = 6;
+    ctx.setLineDash([10, 46]);
+    ctx.lineDashOffset = -(performance.now() / 26) % 56;
     ctx.beginPath();
     ctx.moveTo(TANK.x + 8, yBot);
     ctx.lineTo(px, yBot);
@@ -1441,11 +1457,19 @@ function drawPipes() {
   if (pipe.on > 0) {
     ctx.save();
     rr(MANI.x + 3, MANI.y + 3, MANI.w - 6, MANI.h - 6, 7); ctx.clip();
+    const a2 = Math.min(1, pipe.on * 2.2);
     ctx.strokeStyle = PAL[pipe.color].base;
-    ctx.globalAlpha = 0.75 * Math.min(1, pipe.on * 2.2);
+    ctx.globalAlpha = 0.6 * a2;
     ctx.lineWidth = 11;
-    ctx.setLineDash([17, 13]);
-    ctx.lineDashOffset = (performance.now() / 9) % 30;
+    ctx.beginPath();
+    ctx.moveTo(MANI.x + MANI.w, MANI.y + MANI.h / 2);
+    ctx.lineTo(MANI.x, MANI.y + MANI.h / 2);
+    ctx.stroke();
+    ctx.strokeStyle = PAL[pipe.color].light;
+    ctx.globalAlpha = 0.45 * a2;
+    ctx.lineWidth = 7;
+    ctx.setLineDash([10, 46]);
+    ctx.lineDashOffset = (performance.now() / 26) % 56;
     ctx.beginPath();
     ctx.moveTo(MANI.x + MANI.w, MANI.y + MANI.h / 2);
     ctx.lineTo(MANI.x, MANI.y + MANI.h / 2);

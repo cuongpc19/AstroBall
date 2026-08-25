@@ -1447,14 +1447,21 @@ function drawTrough(x, y, t, open) {
   ctx.strokeStyle = "#b3a99c"; ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  const ins = 7;
+  // ⚠ Một đường lót MÀU chạy sát mặt trong thành, dày chừng 4px. Thành thì trung
+  // tính cho mọi chai, nên nếu không có cái lót này thì một chai rỗng chỉ còn cái nắp
+  // để nói màu — mà cái nắp bé và nằm tách hẳn trên cùng. Lót vào trong thì màu bám
+  // theo đúng hình cái chai, đọc được ngay cả khi chưa có giọt nước nào.
+  const ins = 7, lin = 4;
   bottlePath(bx + ins, y + ins, bw - ins * 2, bh - ins * 2);
+  ctx.fillStyle = p.base; ctx.fill();
+  const iw = bw - (ins + lin) * 2, ih = bh - (ins + lin) * 2;
+  bottlePath(bx + ins + lin, y + ins + lin, iw, ih);
   ctx.fillStyle = "#f7f9fd"; ctx.fill();
   if (lv > 0) {
     ctx.save();
-    bottlePath(bx + ins, y + ins, bw - ins * 2, bh - ins * 2);
+    bottlePath(bx + ins + lin, y + ins + lin, iw, ih);
     ctx.clip();
-    const top = y + bh - ins - lv * (bh - ins * 2);
+    const top = y + bh - ins - lin - lv * ih;
     ctx.fillStyle = p.base;
     ctx.fillRect(bx, top, bw, bh);
     ctx.restore();

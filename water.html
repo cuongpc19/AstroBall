@@ -486,6 +486,13 @@ function rr(x, y, w, h, r) {
 }
 const fillRR = (x, y, w, h, r, s) => { rr(x, y, w, h, r); ctx.fillStyle = s; ctx.fill(); };
 
+/** Tối màu một hex đi `f` lần. Dùng khi cần một bậc đậm hơn `dark` của bảng màu. */
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  return "rgb(" + Math.round(((n >> 16) & 255) * f) + "," +
+    Math.round(((n >> 8) & 255) * f) + "," + Math.round((n & 255) * f) + ")";
+}
+
 function waterTop(x, w, y, amp, ph) {
   ctx.moveTo(x, y);
   for (let i = 0; i <= 24; i++) {
@@ -624,13 +631,44 @@ function drawPot(p, locked, hidden, pop) {
     // đã bay hẳn đi, nên hai trạng thái dùng CHUNG một hình vẽ — nắp lúc đậy và nắp
     // lúc bay không thể lệch nhau, vì chúng là một.
     const k = locked ? 0 : 1 - pop;
-    const lift = k * (36 - 14 * k);     // bật vọt lên rồi rơi lại: một parabol
+    // ⚠ **Ba nhịp, không phải một cú trượt.** Bản trước chỉ dịch nắp lên rồi mờ đi,
+    // nên nó đọc thành "cái nắp tan biến" chứ không thành "cái nắp bị bật ra". Cái
+    // làm nên chữ BẬT là:
+    //   1. bung lên nhanh trong ba phần mười đầu rồi rơi lại — một parabol có đỉnh
+    //      hẳn hoi, chứ không phải đường thẳng;
+    //   2. xoay đủ nhiều để thấy nó lộn (2.6 rad, không phải 1.5 — dưới một vòng
+    //      phần tư thì mắt đọc là nghiêng, không đọc là lộn);
+    //   3. một luồng hơi bật ra ở cổ đúng lúc nó rời chỗ, vì cái thứ đẩy nắp đi phải
+    //      nhìn thấy được, nếu không thì nắp tự nhiên bay.
+    const lift = k * (58 - 46 * k);
+    const bounce = 1 + 0.18 * Math.sin(Math.PI * Math.min(1, k * 1.6));
+    if (!locked && pop > 0.45) {
+      // Luồng hơi: bốn chấm toả ra từ miệng cổ, sống ngắn hơn cái nắp nhiều.
+      const puff = (0.45 - (pop - 0.45)) / 0.45;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, (pop - 0.45) / 0.55) * 0.75;
+      ctx.fillStyle = "#ffffff";
+      for (let i = 0; i < 4; i++) {
+        const a = -Math.PI / 2 + (i - 1.5) * 0.5;
+        const d = 6 + puff * 16;
+        ctx.beginPath();
+        ctx.arc(bw / 2 + Math.cos(a) * d, -8 + Math.sin(a) * d * 0.6, 3 - puff * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     ctx.save();
-    ctx.globalAlpha = locked ? 1 : Math.min(1, pop * 1.6);
-    ctx.translate(bw / 2 + k * 17, -11 - lift);
-    ctx.rotate(k * 1.5);
-    fillRR(-13, -7, 26, 13, 4, "#69769a");
-    fillRR(-13, -7, 26, 6, 3, "#8f9cbd");
+    ctx.globalAlpha = locked ? 1 : Math.min(1, pop * 1.7);
+    ctx.translate(bw / 2 + k * 19, -11 - lift);
+    ctx.rotate(k * 2.6);
+    ctx.scale(bounce, bounce);
+    fillRR(-13, -7, 26, 13, 4, "#4d5876");
+    fillRR(-13, -7, 26, 6, 3, "#6f7c9e");
+    // Mặt dưới nắp: chỉ thấy được khi nó đã lộn, và chính nó nói cho mắt biết là
+    // đang nhìn một vật thể lật chứ không phải một hình phẳng trôi đi.
+    ctx.globalAlpha *= Math.max(0, Math.sin(k * 2.6) );
+    fillRR(-13, 3, 26, 3, 1.5, "#3f4a66");
+    ctx.restore();
     ctx.restore();
     // Màng tối trong bình tan cùng nhịp, nếu không thì nắp bay đi mà cái bình vẫn
     // xám — vẫn đọc là chưa mở được.
@@ -863,55 +901,101 @@ function drawWell() {
  * Lòng máng để TRẮNG khi chưa có nước: nó biến mực nước thành thứ tương phản mạnh
  * nhất trên cả cái máng, nên đọc được "đầy tới đâu" mà không cần đọc con số.
  */
+/**
+ * Đường bao cái máng: miệng rộng hết bề ngang, thành thóp dần xuống đáy, đáy bo.
+ *
+ * ⚠ **Thóp xuống mới đọc ra là cái máng.** Một chữ nhật bo góc đều bốn phía là viên
+ * gạch; trong một cột bốn cái xếp chồng thì đó là bốn viên gạch. Chỉ cần 5px mỗi
+ * bên — đủ để mắt thấy thành nghiêng, không đủ để nó thành cái phễu.
+ */
+function troughPath(x, y, w, h) {
+  const IN = 5, r = 8, rt = 4;
+  ctx.beginPath();
+  ctx.moveTo(x + rt, y);
+  ctx.lineTo(x + w - rt, y);
+  ctx.quadraticCurveTo(x + w, y, x + w - 1, y + rt + 1);
+  ctx.lineTo(x + w - IN, y + h - r);
+  ctx.quadraticCurveTo(x + w - IN, y + h, x + w - IN - r, y + h);
+  ctx.lineTo(x + IN + r, y + h);
+  ctx.quadraticCurveTo(x + IN, y + h, x + IN, y + h - r);
+  ctx.lineTo(x + 1, y + rt + 1);
+  ctx.quadraticCurveTo(x, y, x + rt, y);
+  ctx.closePath();
+}
+
+/**
+ * Một cái máng.
+ *
+ * ⚠ **Viền là MỘT nét mảnh mang màu, không phải cả một cái khung màu dày.** Bản
+ * trước tô kín thân rồi khoét một cái lòng trắng ở giữa, nên quanh mỗi máng có
+ * chừng 12px màu đặc — bốn cái xếp chồng thành bốn cái khung nặng, và cái lòng
+ * trắng vừa thêm vào bị bóp lại còn một khe hẹp. Một nét thì màu vẫn nói đủ mà
+ * trọng lượng thị giác trả về cho NƯỚC bên trong, đúng chỗ nó phải nằm.
+ *
+ * ⚠ Đánh đổi có thật, ghi ra để khỏi phát hiện lại: máng RỖNG trong hàng đợi giờ
+ * chỉ còn một nét mảnh để nói màu. Đọc màu của cột dưới vì thế khó hơn bản khung
+ * dày. Nếu thấy khó quá thì nút vặn là bề dày nét, không phải tô kín lại thân.
+ */
 function drawTrough(x, y, t, open) {
   const p = PAL[t.color];
   const lv = t.filled / TROUGH_CAP;
 
-  // Thân: gờ tối dưới đáy rồi mặt gradient — cùng cách dựng với mọi mảnh khác ở đây.
-  fillRR(x, y + 3, TR.w, TR.h - 3, 10, p.dark);
-  const g = ctx.createLinearGradient(0, y, 0, y + TR.h);
-  g.addColorStop(0, p.light); g.addColorStop(0.72, p.base); g.addColorStop(1, p.base);
-  fillRR(x, y, TR.w, TR.h - 5, 10, g);
-  ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 1.4;
-  rr(x + 3, y + 3, TR.w - 6, TR.h - 11, 8); ctx.stroke();
-
-  // Lòng máng, thụt vào và trắng.
-  const ix = x + 12, iy = y + 8, iw = TR.w - 24, ih = TR.h - 21;
-  fillRR(ix, iy + 1.5, iw, ih, 6, "rgba(30,20,10,0.28)");
-  fillRR(ix, iy, iw, ih, 6, "#fbfcff");
+  // ⚠ Không bóng đổ, không gradient trên thân: cái máng cố tình PHẲNG. Nó là hình
+  // nền cho mực nước đọc lên trên, mà mực nước thì đã có khối; thêm khối cho cả cái
+  // khay nữa là hai thứ tranh nhau chiều sâu trong một mảnh 106x44.
+  troughPath(x, y, TR.w, TR.h);
+  ctx.fillStyle = "#fbfcff"; ctx.fill();
 
   ctx.save();
-  rr(ix, iy, iw, ih, 6); ctx.clip();
-  // Hai vạch chia ở 1/3 và 2/3 chiều cao lòng máng: mực nước là liên tục, nên nếu
-  // không có mốc thì "đầy 2 phần 3" phải đoán. Vẽ trước nước để nước phủ lên chúng.
-  ctx.strokeStyle = "rgba(120,140,175,0.35)"; ctx.lineWidth = 1;
+  troughPath(x, y, TR.w, TR.h); ctx.clip();
+  // Hai vạch chia ở 1/3 và 2/3: mực nước là liên tục, không có mốc thì "đầy hai
+  // phần ba" phải đoán. Vẽ trước nước để nước phủ lên chúng.
+  ctx.strokeStyle = "rgba(120,140,175,0.3)"; ctx.lineWidth = 1;
   for (let s = 1; s < TROUGH_CAP; s++) {
-    const yy = iy + ih - (s / TROUGH_CAP) * ih;
-    ctx.beginPath(); ctx.moveTo(ix + 3, yy); ctx.lineTo(ix + iw - 3, yy); ctx.stroke();
+    const yy = y + TR.h - (s / TROUGH_CAP) * TR.h;
+    ctx.beginPath(); ctx.moveTo(x + 6, yy); ctx.lineTo(x + TR.w - 6, yy); ctx.stroke();
   }
   if (lv > 0) {
-    const top = iy + ih - lv * ih;
-    const wg = ctx.createLinearGradient(0, top, 0, iy + ih);
-    wg.addColorStop(0, p.light); wg.addColorStop(0.4, p.base); wg.addColorStop(1, p.dark);
-    ctx.fillStyle = wg;
+    const top = y + TR.h - lv * (TR.h - 3);
+    // Nước tô PHẲNG một màu, chỉ chừa một vệt sáng mỏng ngay dưới mặt để mặt nước
+    // vẫn là mặt nước. Gradient ba chặng ở đây làm cái máng phồng lên như ống nghiệm.
+    ctx.fillStyle = p.base;
     ctx.beginPath();
-    waterTop(ix, iw, top, 1.5, performance.now() * 0.005 + x * 0.03);
-    ctx.lineTo(ix + iw, iy + ih); ctx.lineTo(ix, iy + ih); ctx.closePath();
+    waterTop(x, TR.w, top, 1.5, performance.now() * 0.005 + x * 0.03);
+    ctx.lineTo(x + TR.w, y + TR.h); ctx.lineTo(x, y + TR.h); ctx.closePath();
     ctx.fill();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = p.light;
+    ctx.beginPath();
+    waterTop(x, TR.w, top, 1.5, performance.now() * 0.005 + x * 0.03);
+    ctx.lineTo(x + TR.w, top + 3.5); ctx.lineTo(x, top + 3.5); ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
-  ctx.strokeStyle = "rgba(70,90,124,0.35)"; ctx.lineWidth = 1.4;
-  rr(ix, iy, iw, ih, 6); ctx.stroke();
+
+  ctx.strokeStyle = p.dark;
+  ctx.globalAlpha = open ? 0.95 : 0.7;
+  ctx.lineWidth = 2;
+  troughPath(x, y, TR.w, TR.h); ctx.stroke();
+  // ⚠ Vành đậm hơn thành một bậc. Cùng một màu cho cả hai thì vành chỉ là chỗ nét
+  // dày lên, và cái máng mất đi thứ nói nó hở miệng ở phía nào.
+  ctx.strokeStyle = shade(p.dark, 0.66);
+  // Vành miệng: cùng nét, dày hơn chút. Nó là thứ nói cái máng HỞ MIỆNG — thiếu nó
+  // thì đường bao khép kín và hình lại đọc thành viên gạch.
+  ctx.lineWidth = 3.4; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(x + 3, y + 1.5); ctx.lineTo(x + TR.w - 3, y + 1.5); ctx.stroke();
+  ctx.globalAlpha = 1;
 
   if (open) {
-    // ⚠ Chữ có viền trắng vì nó nằm trên nền ĐỔI MÀU: lòng trắng lúc rỗng, màu đậm
-    // lúc đầy. Một màu chữ duy nhất không đọc được trên cả hai.
+    // ⚠ Chữ viền trắng rồi mới tô mực, vì nó nằm trên nền ĐỔI MÀU: lòng trắng lúc
+    // rỗng, màu đậm lúc đầy. Một màu chữ duy nhất không đọc được trên cả hai.
     ctx.font = "700 15px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineJoin = "round";
-    ctx.strokeText(t.filled + "/" + TROUGH_CAP, x + TR.w / 2, y + TR.h - 13);
+    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineJoin = "round";
+    ctx.strokeText(t.filled + "/" + TROUGH_CAP, x + TR.w / 2, y + TR.h - 11);
     ctx.fillStyle = UI.ink;
-    ctx.fillText(t.filled + "/" + TROUGH_CAP, x + TR.w / 2, y + TR.h - 13);
+    ctx.fillText(t.filled + "/" + TROUGH_CAP, x + TR.w / 2, y + TR.h - 11);
   }
 }
 

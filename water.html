@@ -441,7 +441,10 @@ function pushUnit(color) {
   tank.wob = Math.min(1, tank.wob + 0.2);
   // Bồn giật một nhịp mỗi lần nhận nước — cùng thứ mà `wob` làm cho mặt nước, nhưng
   // cho cả cái bồn. Không có nó thì nước "xuất hiện" trong bồn chứ không "rơi vào".
-  tank.jolt = Math.min(3, (tank.jolt || 0) + 1.6);
+  // Biên độ 1.5px, mỗi đơn vị cộng 0.7 — đủ để thấy cái bồn NHẬN nước, không đủ để
+  // nó rung. Ở 3px/1.6 nó giật thành từng nhịp và mắt bám vào cái rung thay vì bám
+  // vào mực nước, mà mực nước mới là thứ phải đọc.
+  tank.jolt = Math.min(1.5, (tank.jolt || 0) + 0.7);
   if (tank.total > TANK_CAP) {
     phase = "lose"; msg = "TRÀN BỒN!"; shake = 1;
     // Màu nước tràn ra lấy từ chính các dải đang có, lớp trên trước — tràn là hậu
@@ -619,7 +622,7 @@ function step(now, dt) {
   }
 
   tank.wob *= 0.94;
-  tank.jolt = (tank.jolt || 0) * 0.82;
+  tank.jolt = (tank.jolt || 0) * 0.88;
   tank.wobPhase += dt * 0.006;
   shake *= 0.9;
   for (const s of streams) s.t += dt / 300;
@@ -1481,7 +1484,7 @@ function drawTank() {
   const { x, y, w, h } = TANK;
   const jolt = tank.jolt || 0;
   ctx.save();
-  if (jolt > 0.05) ctx.translate(0, Math.sin(performance.now() / 22) * jolt);
+  if (jolt > 0.04) ctx.translate(0, Math.sin(performance.now() / 30) * jolt);
   const unit = h / TANK_CAP;
   const cx = x + w / 2;
 

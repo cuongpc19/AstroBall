@@ -158,17 +158,20 @@ function layoutGrid(cols, rows) {
 // chai trên rót sang phải vào bồn, ống dẫn vòng xuống trái, thanh phân phối xả xuống
 // các cột. Người chơi đọc được đường đi của nước chỉ bằng cách nhìn.
 //
-// Cao 350px cho 30 đơn vị, tức gần 12px một đơn vị — gấp bốn lần lúc bồn còn nằm
-// ngang. Từng đơn vị vào và ra giờ nhìn thấy được, không còn là một vệt nhích.
-// ⚠ Hẹp 76 -> 68 và dời sang phải. Bồn đang là điểm hút mắt MẠNH NHẤT màn hình, nên
-// thứ tự đọc thành bồn → kho chai → bàn cờ, trong khi bàn cờ mới là chỗ ra quyết
-// định. Nó là chỉ báo tiến độ, không phải nhân vật chính.
-const TANK = { x: 442, y: 458, w: 68, h: 350 };
-
-// Thanh phân phối: nước từ bồn theo ống lên đây rồi xả xuống các cột ngay bên dưới.
-const MANI = { x: 24, y: 470, w: 352, h: 26 };
-
-const TR = { x0: 30, y0: 528, w: 82, gap: 6, h: 64, vgap: 12 };
+// ⚠ **Bồn nằm GIỮA bốn cột: hai cột trái, bồn, hai cột phải.** Nó biến bồn từ một
+// cái tháp dựa mép phải thành cái TRỤC của khu dưới — nước vào từ trên đỉnh, ra hai
+// bên, mỗi bên một thanh phân phối riêng. Đường đi của nước vì thế đối xứng và đọc
+// được ngay, thay vì phải lần theo một vòng ống chạy từ mép này sang mép kia.
+//
+// ⚠ Cột KHÔNG còn cách đều nhau, nên `trX` là một bảng tra chứ không phải công thức.
+// Giữ công thức `x0 + i * (w + gap)` thì cột thứ ba sẽ rơi vào đúng chỗ cái bồn.
+const TR_X = [24, 122, 336, 434];
+const TANK = { x: 232, y: 470, w: 72, h: 292 };
+const MANIS = [
+  { x: 18, y: 462, w: 194, h: 26 },
+  { x: 324, y: 462, w: 194, h: 26 },
+];
+const TR = { y0: 528, w: 82, h: 64, vgap: 12 };
 
 // ⚠ Chỗ xén khu box: ba hàng ĐẦY ĐỦ, hàng thứ tư chỉ ló cái nắp.
 //
@@ -188,7 +191,9 @@ H = MACH.y + MACH.h + 30;
 
 const cellX = (c) => GRID_X0 + c * PITCH + CELL / 2;
 const cellY = (r) => GRID_Y0 + r * PITCH + CELL / 2;
-const trX = (i) => TR.x0 + i * (TR.w + TR.gap);
+const trX = (i) => TR_X[i];
+/** Thanh phân phối phụ trách cột `i` — hai cột đầu bên trái, hai cột sau bên phải. */
+const maniOf = (i) => MANIS[i < 2 ? 0 : 1];
 const spoutX = (i) => trX(i) + TR.w / 2;
 const K = (c, r) => c + "," + r;
 
@@ -288,6 +293,17 @@ function buildLevel(lv) {
   });
 
   cavitySet = new Set(cavity.map(([c, r]) => K(c, r)));
+
+  // ⚠ Canh giữa theo KHỐI Ô THỰC CÓ, không theo lưới. `layoutGrid` canh cả lưới
+  // cols x rows vào giữa màn hình, nhưng blueprint hay chừa hẳn một cột tường ở rìa
+  // — bàn 6 cột mà chỉ dùng cột 0..3 thì khối chơi nằm lệch hẳn sang trái trong khi
+  // lưới thì vẫn "cân". Cái mắt thấy là khối ô, không phải cái lưới.
+  let minC = 99, maxC = -1;
+  for (const [c] of cavity) { if (c < minC) minC = c; if (c > maxC) maxC = c; }
+  if (maxC >= minC) {
+    const span = (maxC - minC + 1) * PITCH;
+    GRID_X0 = (W - span) / 2 + (PITCH - CELL) / 2 - minC * PITCH;
+  }
 
   // ⚠ **Thứ tự box lấy từ blueprint, không sinh lại.** Bàn giải được hay không nằm
   // ở thứ tự này chứ không nằm ở cách xếp khay — chép vị trí khay rồi xáo lại box là
@@ -478,7 +494,7 @@ function drain() {
     const li = tank.layers.findIndex((L) => L.color === t.color);
     if (li < 0) continue;
     takeUnit(li);
-    drops.push({ x: spoutX(i), y: MANI.y + MANI.h + 12, color: t.color, t: 0 });
+    drops.push({ x: spoutX(i), y: maniOf(i).y + maniOf(i).h + 12, color: t.color, t: 0 });
     pipe.on = 1; pipe.color = t.color;
     t.filled++;
     t.bump = 1;
@@ -1598,139 +1614,110 @@ function drawTank() {
  * ở chỗ trổ khỏi bồn, hai vòng đai giữa đoạn đứng, và một cái van có tay vặn. Ống
  * thật không phải một sợi dây liền — mắt biết điều đó, kể cả khi không nghĩ tới.
  */
+/**
+ * Hai nhánh ống từ đáy bồn ra hai bên, và hai thanh phân phối xả xuống bốn cột.
+ *
+ * ⚠ Vẽ SAU bồn và TRƯỚC khu box: ống phải chui ra từ dưới vỏ bồn và luồn xuống dưới
+ * thanh phân phối.
+ *
+ * ⚠ Khúc cua bo bán kính 28 và dùng CHUNG một `path()` cho cả thân ống lẫn dòng nước
+ * bên trong — lệch một pixel ở khúc cua là nước tràn ra ngoài thành ống.
+ */
 function drawPipes() {
-  const px = (MANI.x + MANI.w + TANK.x) / 2;
-  const yBot = TANK.y + TANK.h - 30;
-  const yTop = MANI.y + MANI.h / 2;
-  const xEnd = MANI.x + MANI.w - 10;
-
-  // ⚠ Hai khúc cua bo tròn bán kính 28, không phải góc vuông. Ống nước thật không gập
-  // 90° — người ta dùng co, và cái co là thứ làm đường ống mềm ra. Dựng bằng `arcTo`
-  // trên chính ba đoạn thẳng cũ, nên thân ống và dòng nước bên trong dùng CHUNG một
-  // đường: lệch nhau một pixel ở khúc cua là nước tràn ra ngoài thành ống.
-  const R = 28;
-  const path = () => {
-    ctx.beginPath();
-    ctx.moveTo(TANK.x + 8, yBot);
-    ctx.arcTo(px, yBot, px, yTop, R);
-    ctx.arcTo(px, yTop, xEnd, yTop, R);
-    ctx.lineTo(xEnd, yTop);
-  };
-
-  // ⚠ Ống có hai trạng thái, không phải một hình tĩnh. Lúc nghỉ nó nhạt và ít tương
-  // phản; lúc có nước chạy, cả thân ống ngả sang màu nước. Không có vế đó thì cái ống
-  // chỉ là trang trí — người chơi không đọc được "đường này ĐANG hoạt động" từ chính
-  // cái ống, mà phải suy ra từ dòng nước bên trong nó.
+  const yBot = TANK.y + TANK.h - 34;
   const act = Math.min(1, pipe.on * 2.2);
   const glow = PAL[pipe.color];
-  ctx.lineCap = "round"; ctx.lineJoin = "round";
-  for (const [wgt, col] of [[19, "#c9a06a"], [15, UI.machineEdge], [9, "#fdf6e6"]]) {
-    ctx.strokeStyle = col; ctx.lineWidth = wgt;
-    path(); ctx.stroke();
-  }
-  if (act > 0) {
-    ctx.save();
-    ctx.globalAlpha = act * 0.35;
-    ctx.strokeStyle = glow.light; ctx.lineWidth = 21;
-    path(); ctx.stroke();
-    ctx.globalAlpha = act * 0.22;
-    ctx.strokeStyle = glow.base; ctx.lineWidth = 15;
-    path(); ctx.stroke();
-    ctx.restore();
-  }
+  const R = 26;
 
-  // ⚠ Dòng nước vẽ MẢNH — 4px trong lòng ống 9px, chừa thành ống hai bên. Tô gần kín
-  // lòng thì cái ống biến thành một sợi màu đặc và mất luôn cảm giác "nước chảy TRONG
-  // một cái ống"; để hở hai mép thì thành ống vẫn còn đó và nước nằm gọn bên trong.
-  if (pipe.on > 0) {
-    const a = Math.min(1, pipe.on * 2.2);
-    ctx.save();
-    ctx.lineCap = "round";
-    ctx.strokeStyle = PAL[pipe.color].base;
-    ctx.globalAlpha = 0.8 * a;
-    ctx.lineWidth = 4;
-    path(); ctx.stroke();
-    ctx.strokeStyle = PAL[pipe.color].light;
-    ctx.globalAlpha = 0.55 * a;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([9, 48]);
-    ctx.lineDashOffset = -(performance.now() / 26) % 57;
-    path(); ctx.stroke();
-    ctx.restore();
-  }
+  for (const side of [0, 1]) {
+    const M = MANIS[side];
+    const yTop = M.y + M.h / 2;
+    const inner = side ? M.x : M.x + M.w;                       // đầu quay về phía bồn
+    const px = side ? (TANK.x + TANK.w + M.x) / 2 : (M.x + M.w + TANK.x) / 2;
+    const from = side ? TANK.x + TANK.w - 8 : TANK.x + 8;
+    const xEnd = side ? M.x + M.w - 10 : M.x + 10;
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(from, yBot);
+      ctx.arcTo(px, yBot, px, yTop, R);
+      ctx.arcTo(px, yTop, xEnd, yTop, R);
+      ctx.lineTo(xEnd, yTop);
+    };
 
-  // Khớp nối: hai đai trên đoạn đứng, một mặt bích chỗ trổ khỏi bồn.
-  // Đai ống bằng đồng thau — nhấn kim loại DUY NHẤT trên màn hình, nên nó tự đánh dấu
-  // các khớp nối mà không cần thêm đường nét nào.
-  const collar = (cx, cy, w, h) => {
-    fillRR(cx - w / 2, cy - h / 2, w, h, 3, "#a9761c");
-    fillRR(cx - w / 2 + 1.5, cy - h / 2 + 1.5, w - 3, h - 3, 2.5, "#e8b845");
-    fillRR(cx - w / 2 + 2.5, cy - h / 2 + 2.5, w - 5, 2, 1, "#f8dd93");
-  };
-  collar(px, yBot - (yBot - yTop) * 0.34, 26, 11);
-  collar(px, yBot - (yBot - yTop) * 0.66, 26, 11);
-  collar(TANK.x + 4, yBot, 12, 26);
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    for (const [wgt, col] of [[19, "#c9a06a"], [15, UI.machineEdge], [9, "#fdf6e6"]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = wgt;
+      path(); ctx.stroke();
+    }
+    if (act > 0) {
+      ctx.save();
+      ctx.globalAlpha = act * 0.35;
+      ctx.strokeStyle = glow.light; ctx.lineWidth = 21;
+      path(); ctx.stroke();
+      ctx.globalAlpha = act * 0.22;
+      ctx.strokeStyle = glow.base; ctx.lineWidth = 15;
+      path(); ctx.stroke();
+      // Nước trong ống: dòng liền mảnh, vài vệt sáng trôi chậm trên đó.
+      ctx.lineCap = "round";
+      ctx.strokeStyle = glow.base; ctx.globalAlpha = 0.8 * act; ctx.lineWidth = 4;
+      path(); ctx.stroke();
+      ctx.strokeStyle = glow.light; ctx.globalAlpha = 0.55 * act; ctx.lineWidth = 2;
+      ctx.setLineDash([9, 48]);
+      ctx.lineDashOffset = -(performance.now() / 26) % 57;
+      path(); ctx.stroke();
+      ctx.restore();
+    }
 
-  // Van tay vặn, ngay trên chỗ ống rời bồn.
-  const vx = px, vy = yBot - (yBot - yTop) * 0.13;
-  fillRR(vx - 13, vy - 9, 26, 18, 5, "#b0864f");
-  fillRR(vx - 11, vy - 7, 22, 14, 4, "#f6ead2");
-  ctx.strokeStyle = "#b0864f"; ctx.lineWidth = 4; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(vx, vy); ctx.lineTo(vx + 17, vy - 9); ctx.stroke();
-  ctx.fillStyle = "#c0392b";
-  ctx.beginPath(); ctx.arc(vx + 19, vy - 10, 5, 0, Math.PI * 2); ctx.fill();
+    // Đai ống bằng đồng thau — nhấn kim loại duy nhất, tự đánh dấu các khớp nối.
+    const collar = (cx, cy, w, h) => {
+      fillRR(cx - w / 2, cy - h / 2, w, h, 3, "#a9761c");
+      fillRR(cx - w / 2 + 1.5, cy - h / 2 + 1.5, w - 3, h - 3, 2.5, "#e8b845");
+      fillRR(cx - w / 2 + 2.5, cy - h / 2 + 2.5, w - 5, 2, 1, "#f8dd93");
+    };
+    collar(px, yBot - (yBot - yTop) * 0.34, 24, 11);
+    collar(px, yBot - (yBot - yTop) * 0.68, 24, 11);
 
-  // ── Thanh phân phối ───────────────────────────────────────────────────────
-  // ⚠ Bo tròn hẳn hai đầu (bán kính = nửa chiều cao) và viền dày: một thanh bo 10 với
-  // nét mảnh là thanh kim loại kỹ thuật, cùng hình đó bo hết cỡ là một món đồ chơi.
-  fillRR(MANI.x, MANI.y + 5, MANI.w, MANI.h, MANI.h / 2, "#c9a06a");
-  const mg = ctx.createLinearGradient(0, MANI.y, 0, MANI.y + MANI.h);
-  mg.addColorStop(0, "#fffaf0");
-  mg.addColorStop(0.55, "#ecd9b4");
-  mg.addColorStop(1, "#d9b47e");
-  fillRR(MANI.x, MANI.y, MANI.w, MANI.h, MANI.h / 2, mg);
-  fillRR(MANI.x + 9, MANI.y + 4, MANI.w - 18, 6, 3, "rgba(255,255,255,0.95)");
-  ctx.strokeStyle = "#c9a06a"; ctx.lineWidth = 2;
-  rr(MANI.x, MANI.y, MANI.w, MANI.h, MANI.h / 2); ctx.stroke();
-  if (pipe.on > 0) {
-    const a2 = Math.min(1, pipe.on * 2.2);
-    ctx.save();
-    rr(MANI.x + 3, MANI.y + 3, MANI.w - 6, MANI.h - 6, 7); ctx.clip();
-    ctx.lineCap = "round";
-    ctx.strokeStyle = PAL[pipe.color].base;
-    ctx.globalAlpha = 0.7 * a2;
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.moveTo(MANI.x + MANI.w, MANI.y + MANI.h / 2);
-    ctx.lineTo(MANI.x + 8, MANI.y + MANI.h / 2);
-    ctx.stroke();
-    ctx.strokeStyle = PAL[pipe.color].light;
-    ctx.globalAlpha = 0.5 * a2;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([9, 48]);
-    ctx.lineDashOffset = (performance.now() / 26) % 57;
-    ctx.beginPath();
-    ctx.moveTo(MANI.x + MANI.w, MANI.y + MANI.h / 2);
-    ctx.lineTo(MANI.x + 8, MANI.y + MANI.h / 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-  // Vòng đai chia khoang — thanh trơn dài 350px đọc thành một cái gạch.
-  for (let i = 1; i < COLS; i++) {
-    const cx = (spoutX(i - 1) + spoutX(i)) / 2;
-    fillRR(cx - 5, MANI.y - 1, 10, MANI.h + 2, 5, "#c2984f");
+    // ── Thanh phân phối ─────────────────────────────────────────────────────
+    fillRR(M.x, M.y + 5, M.w, M.h, M.h / 2, "#c9a06a");
+    const mg = ctx.createLinearGradient(0, M.y, 0, M.y + M.h);
+    mg.addColorStop(0, "#fffaf0");
+    mg.addColorStop(0.55, "#ecd9b4");
+    mg.addColorStop(1, "#d9b47e");
+    fillRR(M.x, M.y, M.w, M.h, M.h / 2, mg);
+    fillRR(M.x + 9, M.y + 4, M.w - 18, 6, 3, "rgba(255,255,255,0.95)");
+    ctx.strokeStyle = "#c9a06a"; ctx.lineWidth = 2;
+    rr(M.x, M.y, M.w, M.h, M.h / 2); ctx.stroke();
+    if (act > 0) {
+      ctx.save();
+      rr(M.x + 3, M.y + 3, M.w - 6, M.h - 6, 7); ctx.clip();
+      ctx.lineCap = "round";
+      ctx.strokeStyle = glow.base; ctx.globalAlpha = 0.7 * act; ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(inner, M.y + M.h / 2);
+      ctx.lineTo(side ? M.x + M.w : M.x, M.y + M.h / 2);
+      ctx.stroke();
+      ctx.strokeStyle = glow.light; ctx.globalAlpha = 0.5 * act; ctx.lineWidth = 2;
+      ctx.setLineDash([9, 48]);
+      ctx.lineDashOffset = (side ? -1 : 1) * (performance.now() / 26) % 57;
+      ctx.beginPath();
+      ctx.moveTo(inner, M.y + M.h / 2);
+      ctx.lineTo(side ? M.x + M.w : M.x, M.y + M.h / 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Vòng đai giữa hai cột — thanh trơn đọc thành một cái gạch.
+    const cx = (spoutX(side * 2) + spoutX(side * 2 + 1)) / 2;
+    fillRR(cx - 5, M.y - 1, 10, M.h + 2, 5, "#c2984f");
   }
 
-  // Đầu rót trên mỗi cột: phễu thu nhỏ dần rồi tới miệng vòi.
-  // ⚠ Đầu rót là cái BẦU TRÒN, không phải phễu hình thang. Hình thang có ba cạnh
-  // thẳng và hai góc nhọn — đúng một cái phễu kỹ thuật, và nó là chi tiết cứng nhất
-  // trong cả khu này. Một cái bầu tròn có núm ở dưới đọc ra cùng chức năng mà mềm.
+  // Đầu rót trên mỗi cột: bầu tròn có núm.
   for (let i = 0; i < COLS; i++) {
-    const sx = spoutX(i), sy = MANI.y + MANI.h;
+    const M = maniOf(i);
+    const sx = spoutX(i), sy = M.y + M.h;
     ctx.beginPath();
     ctx.ellipse(sx, sy + 2, 12, 9, 0, 0, Math.PI);
     ctx.closePath();
-    ctx.fillStyle = "#ecd9b4"; ctx.fill();
+    ctx.fillStyle = "#e6cf9f"; ctx.fill();
     ctx.strokeStyle = "#c9a06a"; ctx.lineWidth = 2; ctx.stroke();
     fillRR(sx - 6, sy + 8, 12, 9, 4.5, "#c9a06a");
     fillRR(sx - 4, sy + 9, 8, 6, 3, "#8a6633");
@@ -1833,19 +1820,24 @@ function drawOverflow() {
  * ⚠ Giếng chỉ ôm khu cột, không kéo hết bề ngang tủ — bồn đứng bên phải và một cái
  * giếng full-width sẽ phủ đè lên nó.
  */
+/**
+ * Hai khay chứa cột chai — mỗi khay ôm một cặp cột, bồn đứng giữa hai khay.
+ *
+ * ⚠ Một khay chạy suốt bề ngang sẽ chui qua dưới chân bồn và đọc thành cái bồn đang
+ * đứng TRÊN khay. Tách làm hai thì bồn có chỗ đứng của riêng nó, và cái khu dưới đọc
+ * ra đúng cấu trúc: hai cụm nhận, một nguồn ở giữa.
+ */
 function drawWell() {
   const top = TR.y0 - 14;
-  // Kết thúc ngay dưới chỗ xén cộng chỗ cho badge, không chạy tới đáy tủ: để hở một
-  // khoảng trắng dài dưới hàng bị xén thì cái xén đọc thành lỗi vẽ.
   const hgt = TR_CUT + 30 - top;
-  const x = MANI.x - 6, w = MANI.w + 12;
-  // Bóng đổ mềm dưới đáy — thứ nhấc cả cụm ra khỏi mặt tủ.
-  fillRR(x + 4, top + 4, w - 8, hgt + 4, 40, "rgba(140,102,58,0.22)");
-  fillRR(x, top - 8, w, hgt + 8, 40, "#c9a06a");
-  fillRR(x + 5, top - 3, w - 10, hgt - 2, 36, "#fdf5e4");
+  for (const M of MANIS) {
+    const x = M.x - 6, w = M.w + 12;
+    fillRR(x + 4, top + 4, w - 8, hgt + 4, 40, "rgba(140,102,58,0.22)");
+    fillRR(x, top - 8, w, hgt + 8, 40, "#c9a06a");
+    fillRR(x + 5, top - 3, w - 10, hgt - 2, 36, "#fdf5e4");
+  }
   for (let i = 0; i < COLS; i++) {
-    // Khe cột: hốc bo tròn hẳn, có viền trong mảnh — đọc thành chỗ ĐẶT chai, không
-    // thành một ô kẻ.
+    // Khe cột: hốc bo tròn hẳn — đọc thành chỗ ĐẶT chai, không thành một ô kẻ.
     fillRR(trX(i) - 4, top + 6, TR.w + 8, hgt - 20, 22, "rgba(196,164,112,0.20)");
     ctx.strokeStyle = "rgba(196,164,112,0.5)"; ctx.lineWidth = 1.6;
     rr(trX(i) - 4, top + 6, TR.w + 8, hgt - 20, 22); ctx.stroke();

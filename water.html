@@ -515,10 +515,7 @@ function drain() {
  */
 function mouthOf(p) {
   const a = p.tilt * TILT_MAX;
-  let x = p.px ?? cellX(p.cell[0]);
-  const y = p.py ?? cellY(p.cell[1]);
-  // Rung ngang khi bị từ chối — biên độ tắt dần, ba nhịp trong 300ms.
-  if (nope > 0) x += Math.sin(nope * Math.PI * 6) * nope * 7;
+  const x = p.px ?? cellX(p.cell[0]), y = p.py ?? cellY(p.cell[1]);
   const hx = 23, hy = 23;
   return { x: x + hx * Math.cos(a) + hy * Math.sin(a), y: y + hx * Math.sin(a) - hy * Math.cos(a) };
 }
@@ -1061,7 +1058,14 @@ function drawCavity() {
 function drawPot(p, locked, hidden, pop, tap, nope) {
   const bw = 46, bh = 54;
   // Vẽ tại vị trí `step` vừa tính — trong lúc bay, chai không còn ở ô của nó.
-  const x = p.px ?? cellX(p.cell[0]), y = p.py ?? cellY(p.cell[1]);
+  const y = p.py ?? cellY(p.cell[1]);
+  let x = p.px ?? cellX(p.cell[0]);
+  // Rung ngang khi bị từ chối: ba nhịp, biên độ tắt dần trong 300ms.
+  //
+  // ⚠ Chỉ lệch chỗ VẼ, không đụng `p.px`. `mouthOf` đọc `p.px`, nên rung vào đó là
+  // rung luôn cả dòng nước của một cú rót khác đang diễn ra — mà một chai bị từ chối
+  // thì đang không rót gì cả, nên lỗi ấy sẽ không lộ ra cho tới đúng lúc nó lộ ra.
+  if (nope > 0) x += Math.sin(nope * Math.PI * 6) * nope * 7;
   if (tap > 0) {
     // Vòng sáng lan ra từ chính cái bình vừa chạm — nó nói "đã nhận", ở đúng chỗ ngón
     // tay vừa rời đi.

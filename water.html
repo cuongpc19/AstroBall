@@ -89,6 +89,9 @@ const UI = {
 const JAR_UNITS = 9;
 const TROUGH_CAP = 3;
 const TANK_CAP = 30;
+// Quá mốc này là thước sức chứa chuyển đỏ và nhấp nháy. 27 / 30 — tức còn chỗ cho
+// chưa tới một phần ba bình, nên cảnh báo đến ĐÚNG lúc còn kịp không rót thêm.
+const WARN_AT = 27;
 const COLS = 4;            // BOX_COLS của game cũ
 const TR_VISIBLE = 4;      // vẽ bấy nhiêu hàng box, còn lại đếm bằng badge (BOX_VISIBLE)
 const HATCH_LOAD = 3;      // số bình sau cánh cửa mỗi hatch
@@ -199,11 +202,23 @@ function buildLevel(lv) {
     if (cell.kind === "crate") { place({ kind: "crate", cells: [[c, r]] }); return; }
 
     if (cell.kind === "hatch") {
-      // `dir` của game cũ có thể là up/left/right; ở đây mới hiện thực "down".
+      // ⚠ **Hatch không còn là cái cửa nhả bình sang ô khác.** Nó là một CHỒNG bình
+      // đứng ngay tại ô của nó: rót cái trước thì cái sau dâng lên đúng chỗ đó.
+      //
+      // Bỏ được luôn khái niệm hướng (`dir` của game cũ có up/down/left/right, và ô
+      // nhận phải trống thì mới nhả được — hai thứ đó vừa phải giải thích vừa phải
+      // canh). Và quan trọng hơn: cái chồng TỰ NÓI ra thứ mà cửa cuốn phải viết bằng
+      // con số. Nhìn thấy ba lớp là biết ngay rót xong còn hai cái nữa.
+      //
+      // Về luật, nó chỉ là một bình bình thường — `canEscape`, nắp, bật nắp đều dùng
+      // chung đường như mọi bình khác, không có nhánh riêng nào.
+      const q = cell.queue.map(colorOf);
+      const hq = cell.hiddenQ && cell.hiddenQ.length ? cell.hiddenQ.slice() : q.map(() => false);
       place({
-        kind: "hatch", cells: [[c, r]], dir: cell.dir || "down",
-        queue: cell.queue.map(colorOf),
-        hiddenQ: cell.hiddenQ ? cell.hiddenQ.slice() : cell.queue.map(() => false),
+        kind: "jar", cells: [[c, r]],
+        pots: [newPot(q[0], [c, r])],
+        queue: q.slice(1), hiddenQ: hq.slice(1),
+        pouring: false, pourT: 0, hidden: !!hq[0],
       });
       return;
     }
@@ -303,11 +318,28 @@ function tapTile(t) {
   for (const p of t.pots) p.poured = 0;
 }
 
-/** Bình rót xong: gỡ khỏi bàn, rồi hỏi hatch và tấm socola xem có gì mở ra không. */
+/**
+ * Bình rót xong.
+ *
+ * ⚠ Còn hàng đợi thì KHÔNG gỡ khỏi bàn — thay ruột tại chỗ và cái sau dâng lên. Gỡ
+ * rồi đặt lại một tile mới sẽ làm ô trống đi một nhịp, và trong nhịp đó những bình
+ * quanh nó tưởng như vừa có lối ra: nắp bật lên rồi đậy lại ngay. `locked` đặt về
+ * `undefined` để lượt sau tính lại từ đầu mà không châm ngòi hiệu ứng bật nắp.
+ */
 function retire(t) {
+  for (const p of t.pots) countTowardLids(p.color);
+  if (t.queue && t.queue.length) {
+    const color = t.queue.shift();
+    const hid = t.hiddenQ && t.hiddenQ.length ? t.hiddenQ.shift() : false;
+    t.pots = [newPot(color, t.cells[0])];
+    t.hidden = !!hid;
+    t.pouring = false;
+    t.pop = 0;
+    t.locked = undefined;
+    return;
+  }
   for (const [c, r] of t.cells) grid.delete(K(c, r));
   tiles = tiles.filter((x) => x !== t);
-  for (const p of t.pots) countTowardLids(p.color);
 }
 
 /**
@@ -331,22 +363,6 @@ function countTowardLids(color) {
       if (i >= load.length) return;
       place({ kind: "jar", cells: [[c, r]], pots: [newPot(load[i], [c, r])], pouring: false, pourT: 0, hidden: false });
     });
-  }
-}
-
-/** Hatch đẩy bình ra ô ngay dưới khi ô đó trống. Hết hàng thì chính nó biến mất. */
-function serviceHatches() {
-  for (const t of tiles.slice()) {
-    if (t.kind !== "hatch") continue;
-    const [c, r] = t.cells[0];
-    if (!t.queue.length) {
-      grid.delete(K(c, r));
-      tiles = tiles.filter((x) => x !== t);
-      continue;
-    }
-    if (!cellFree(c, r + 1)) continue;
-    const color = t.queue.shift();
-    place({ kind: "jar", cells: [[c, r + 1]], pots: [newPot(color, [c, r + 1])], pouring: false, pourT: 0, hidden: false });
   }
 }
 
@@ -460,7 +476,6 @@ function step(now, dt) {
       }
       if (t.pots.every((p) => p.units <= 0)) { t.pouring = false; retire(t); }
     }
-    serviceHatches();
 
     if (now - lastDrain > DRAIN_MS) {
       lastDrain = now;
@@ -469,7 +484,7 @@ function step(now, dt) {
       stalledFor = moved || tank.total === 0 ? 0 : stalledFor + DRAIN_MS;
     }
 
-    const done = !tiles.some((t) => t.pots || t.kind === "hatch" || t.kind === "lid");
+    const done = !tiles.some((t) => t.pots || t.kind === "lid");
     if (done && tank.total === 0) { phase = "win"; msg = "SẠCH BỒN!"; }
     else if (done && stalledFor > 900) { phase = "lose"; msg = "BỒN TẮC!"; }
   }
@@ -779,29 +794,41 @@ function drawCrate(t) {
   ctx.stroke();
 }
 
-/** Hatch: vỏ máy với cửa cuốn ở đáy, số trên mặt là còn bao nhiêu bình sau cửa. */
-function drawHatch(t) {
+/**
+ * Các lớp bình đứng SAU cái đang rót được — phần nhìn thấy của hàng đợi.
+ *
+ * ⚠ Vẽ dâng lên phía trên và thu nhỏ dần, chứ không xếp ngang. Xếp ngang thì nó đọc
+ * thành mấy cái bình khác nhau cùng nằm trong một ô, và người chơi sẽ thử bấm vào
+ * từng cái. Xếp chồng lùi về sau chỉ có một nghĩa: cùng một chỗ, đến lượt sau.
+ *
+ * ⚠ Không tô màu — chỉ là bóng bình trắng xám. Cái chồng này để nói CÒN BAO NHIÊU,
+ * không phải còn màu gì; đúng bằng lượng thông tin cái cửa cuốn cũ đưa ra bằng một
+ * con số. Tô màu là làm bàn dễ đi, và đó là một quyết định luật, không phải hình.
+ */
+function drawQueue(t) {
+  if (!t.queue || !t.queue.length) return;
   const [c, r] = t.cells[0];
-  const x = cellX(c) - CELL / 2, y = cellY(r) - CELL / 2;
-  const doorTop = CELL - 19;
-  fillRR(x + 1, y + 3, CELL - 2, CELL - 3, 13, "#2f3a4f");
-  const g = ctx.createLinearGradient(0, y, 0, y + doorTop);
-  g.addColorStop(0, "#b6cbec"); g.addColorStop(1, "#7f99c6");
-  fillRR(x + 2, y + 2, CELL - 4, doorTop - 2, 12, g);
-  fillRR(x + 3, y + doorTop - 4, 6, 20, 3, "#5a6c8c");
-  fillRR(x + CELL - 9, y + doorTop - 4, 6, 20, 3, "#5a6c8c");
-  fillRR(x + 7, y + doorTop - 2, CELL - 14, 18, 5, "#3d4a63");
-  ctx.strokeStyle = "#55658a"; ctx.lineWidth = 1.6;
-  for (let k = 0; k < 3; k++) {
-    ctx.beginPath();
-    ctx.moveTo(x + 10, y + doorTop + 2.5 + k * 5);
-    ctx.lineTo(x + CELL - 10, y + doorTop + 2.5 + k * 5);
-    ctx.stroke();
+  const x = cellX(c), y = cellY(r);
+  const n = Math.min(2, t.queue.length);
+  for (let i = n; i >= 1; i--) {
+    // ⚠ Lệch lên 9px một lớp và chỉ thu hẹp 5px. Bản đầu lệch 7 và thu 7, nên lớp sau
+    // nằm gọn trong bóng của lớp trước và không thấy gì cả — cái chồng chỉ đọc được
+    // nếu VAI của bình sau nhô ra hai bên cái nắp của bình trước.
+    const bw = 46 - i * 5, bh = 54 - i * 5;
+    const oy = y - 2 - i * 9;
+    ctx.globalAlpha = 0.9 - i * 0.2;
+    fillRR(x - bw / 2, oy - bh / 2, bw, bh, 11, "#f2f5fc");
+    ctx.strokeStyle = "rgba(96,116,152,0.55)"; ctx.lineWidth = 1.4;
+    rr(x - bw / 2, oy - bh / 2, bw, bh, 11); ctx.stroke();
+    ctx.globalAlpha = 1;
   }
-  ctx.fillStyle = UI.ink;
-  ctx.font = "700 22px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(String(t.queue.length), x + CELL / 2, y + doorTop / 2 + 8);
+  if (t.queue.length > 2) {
+    // Quá hai lớp thì chồng thêm không đọc ra được nữa — nói bằng số.
+    ctx.fillStyle = UI.ink;
+    ctx.font = "700 13px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("+" + t.queue.length, x + 20, y - CELL / 2 - 2);
+  }
 }
 
 /**
@@ -854,12 +881,12 @@ function drawLid(t) {
 function drawTiles() {
   for (const t of tiles) {
     if (t.kind === "crate") drawCrate(t);
-    else if (t.kind === "hatch") drawHatch(t);
     else if (t.kind === "lid") drawLid(t);
   }
   for (const t of tiles) {
     if (!t.pots) continue;
     const locked = !liftable(t) && !t.pouring && !t.hidden;
+    drawQueue(t);
     if (t.kind === "pair") drawClip(t);
     for (const p of t.pots) drawPot(p, locked, t.hidden, t.pop || 0);
   }
@@ -940,20 +967,57 @@ function drawTank() {
   ctx.fillRect(x, y, w, unit * 5);
   ctx.restore();
 
-  fillRR(x + 8, y + 8, 8, h - 20, 4, "rgba(255,255,255,0.16)");
+  // ── Thước sức chứa ─────────────────────────────────────────────────────────
+  //
+  // ⚠ Thay cho dòng chữ "n / 30". Con số bắt người chơi ĐỌC rồi mới so; một cái cột
+  // dâng lên thì so sánh xong ngay trong lúc mắt lướt qua — mà lúc bồn sắp đầy thì
+  // đó đúng là thứ duy nhất họ có thời gian làm.
+  //
+  // ⚠ Dựng đứng và nằm TRONG bồn, cùng hướng với mực nước. Đặt ngang hoặc để ra
+  // ngoài thì nó thành một chỉ số thứ hai phải đối chiếu; dựng đứng cạnh nước thì nó
+  // chỉ là chính mực nước đó, đọc thêm một lần cho chắc.
+  const frac = Math.min(1, tank.total / TANK_CAP);
+  const gx = x + 9, gw = 11, gy = y + 7, gh = h - 14;
+  fillRR(gx, gy, gw, gh, 5, "rgba(40,60,95,0.22)");
+  // Vạch ngưỡng cảnh báo: mốc mà quá nó là bắt đầu nguy.
+  const wy = gy + gh - (WARN_AT / TANK_CAP) * gh;
+  ctx.fillStyle = "rgba(190,60,60,0.55)";
+  ctx.fillRect(gx - 2, wy - 0.5, gw + 4, 1.6);
+  if (frac > 0) {
+    const fh = frac * (gh - 4);
+    const hot = tank.total >= WARN_AT;
+    // ⚠ Nhấp nháy bằng cách đổi ĐỘ SÁNG, không đổi độ mờ. Mờ dần thì cái cột biến
+    // mất một nửa số khung hình, mà lúc đó nó là thứ đang phải nhìn nhất.
+    const blink = hot ? 0.72 + 0.28 * Math.abs(Math.sin(performance.now() / 190)) : 1;
+    const g2 = ctx.createLinearGradient(0, gy + gh - fh, 0, gy + gh);
+    if (hot) {
+      g2.addColorStop(0, "rgb(" + Math.round(255 * blink) + "," + Math.round(90 * blink) + "," + Math.round(80 * blink) + ")");
+      g2.addColorStop(1, "rgb(" + Math.round(180 * blink) + "," + Math.round(30 * blink) + "," + Math.round(40 * blink) + ")");
+    } else {
+      g2.addColorStop(0, "#8fd4f5");
+      g2.addColorStop(1, "#3f8fc4");
+    }
+    ctx.fillStyle = g2;
+    fillRR(gx + 2, gy + gh - fh - 2, gw - 4, fh, 4, g2);
+    if (hot) {
+      ctx.globalAlpha = (blink - 0.72) / 0.28 * 0.5;
+      fillRR(gx - 3, gy + gh - fh - 5, gw + 6, fh + 6, 6, "#ff5a4a");
+      ctx.globalAlpha = 1;
+    }
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1.2;
+  rr(gx, gy, gw, gh, 5); ctx.stroke();
+
   for (let i = 0; i < COLS; i++) {
     fillRR(spoutX(i) - 11, y + h + 6, 22, 14, 5, UI.machineEdge);
     fillRR(spoutX(i) - 7, y + h + 18, 14, 8, 3, UI.beltDeep);
   }
 
-  ctx.fillStyle = stalledFor > 400 ? "#c0392b" : UI.ink;
-  ctx.font = "700 19px system-ui, sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(tank.total + " / " + TANK_CAP, x - 8, y - 22);
   if (stalledFor > 400 && phase === "play") {
+    ctx.fillStyle = "#c0392b";
     ctx.font = "700 14px system-ui, sans-serif";
     ctx.textAlign = "right";
-    ctx.fillText("TẮC — không màu nào khớp máng đang mở", x + w + 8, y - 22);
+    ctx.fillText("TẮC — không màu nào khớp máng đang mở", x + w + 8, y - 12);
   }
 }
 

@@ -1,0 +1,75 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Android packaging. The whole android/ project is GENERATED — `npx cap add android`
+# recreates it and `node scripts/setup-android.mjs` re-applies our icons + portrait
+# lock — so none of it is tracked. Rebuild an APK with: npm run apk
+android/
+*.apk
+*.aab
+
+# Reference video + local scratch. The video is the spec for the mechanic (see
+# CLAUDE.md) but it is a phone capture, so it stays out of the repo.
+/Manythings/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local dev scratch scripts (headless-browser playtest harnesses)
+/_*.mjs
+
+# headless screenshot runs (scripts/shot.mjs) — browser profile + captures
+scripts/.shots/
+
+# real games pasted out of the game (Settings -> COPY N GAMES); local data
+playlog.jsonl
+
+# Firebase CLI deploy cache
+.firebase/
+
+# Generator scratch output (level blocks, shuffle maps) — the result is baked into
+# src/game/handmade.ts, these are the working notes that produced it.
+scripts/.*.txt
+scripts/.*.json
+
+# Scratch output from scripts/remap-run.mjs — the block files are pasted, never committed
+scripts/.tmp/
+
+# Store scratch — raw generator output and cover variants that never ship. Only the
+# canonical cover-*.png / preview-*.mp4 that CRAZYGAMES.md links are tracked.
+store/crazygames/original/
+store/crazygames/Gemini_Generated_Image_*
+store/crazygames/cover-*-N.png
+store/crazygames/cover-*-T[0-9].png
+store/crazygames/cover-*-v[0-9].png

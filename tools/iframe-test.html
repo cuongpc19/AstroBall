@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AstroBall — iframe sizes</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        background: #1c1330;
+        color: #e8e4f2;
+        font: 14px/1.5 system-ui, sans-serif;
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      p { margin: 0 0 20px; color: #a99fc4; max-width: 70ch; }
+      .row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+      figure { margin: 0; }
+      figcaption { margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+      /* A visible edge, so letterbox bars that happen to match the page are still countable. */
+      iframe { border: 2px solid #6c5b9e; background: #000; display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>AstroBall at every iframe size the host uses</h1>
+    <p>
+      Serve the build first — <code>npx vite preview</code> — then open this file. The host runs
+      the game between 800×450 and 1920×1080. Both are 16:9, so <code>Scale.FIT</code> covers the
+      whole range and this page is a <b>verification</b>, not a rewrite. The phone size is the one
+      that is a different ratio, and the one to look at hardest.
+    </p>
+    <p>
+      Look for: the board fully inside the frame at every size, letterbox bars painted the game's
+      own colour rather than white or black, and no scrollbar inside any frame.
+    </p>
+    <div class="row">
+      <figure>
+        <figcaption>800 × 450 — smallest desktop frame</figcaption>
+        <iframe src="http://localhost:4173/" width="800" height="450"></iframe>
+      </figure>
+      <figure>
+        <figcaption>390 × 844 — phone, portrait</figcaption>
+        <iframe src="http://localhost:4173/" width="390" height="844"></iframe>
+      </figure>
+      <figure>
+        <figcaption>1280 × 720</figcaption>
+        <iframe src="http://localhost:4173/" width="1280" height="720"></iframe>
+      </figure>
+      <figure>
+        <figcaption>1920 × 1080 — largest frame</figcaption>
+        <iframe src="http://localhost:4173/" width="1920" height="1080"></iframe>
+      </figure>
+    </div>
+  </body>
+</html>

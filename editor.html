@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AstroBall — Level Editor</title>
+    <link rel="preload" as="font" type="font/ttf" href="fonts/LilitaOne.ttf" crossorigin />
+    <style>
+      @font-face {
+        font-family: "Lilita One";
+        src: url("fonts/LilitaOne.ttf") format("truetype");
+        font-display: swap;
+      }
+
+      /* The machine's own three tones: white ground, white recess, slate rim. */
+      :root {
+        --ground: #eef2f7;
+        --card: #ffffff;
+        --body: #dfe6f5;
+        --recess: #f4f7fd;
+        --rim: #9fb0cb;
+        --slot: #e4ebf8;
+        --ink: #2b3550;
+        --ink-soft: #6b7793;
+        --ink-faint: #97a1b8;
+        --accent: #2b5ce8;
+        --bad: #c2415c;
+        --good: #2f8a5b;
+        --shadow: 0 1px 2px rgba(43, 53, 80, 0.07), 0 8px 22px rgba(43, 53, 80, 0.08);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--ground);
+        color: var(--ink);
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        padding: 16px 24px;
+        background: var(--card);
+        border-bottom: 1px solid #d8dfec;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      header h1 {
+        font-family: "Lilita One", sans-serif;
+        font-size: 22px;
+        font-weight: 400;
+        letter-spacing: 0.02em;
+        margin: 0;
+      }
+
+      /* Which level the drawing belongs to, kept in the sticky header — the panel scrolls away
+         while you are drawing and that is exactly when it is easy to lose track. */
+      .badge {
+        margin-right: auto;
+        font-family: "Lilita One", sans-serif;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+        padding: 5px 13px;
+        border-radius: 999px;
+        background: #eef2fb;
+        border: 1px solid #d5deee;
+        color: var(--ink-soft);
+        white-space: nowrap;
+      }
+      .badge.saved { background: #e7f5ec; border-color: #b9e0c8; color: #2f8a5b; }
+      .badge.dirty { background: #fdf3e3; border-color: #f0dcb4; color: #9a6b12; }
+
+      /* `a.btn` as well as `button`: the two "open the game" controls are real links, because a
+         popup blocker can swallow window.open without a word and a link it cannot. */
+      button,
+      a.btn {
+        font: inherit;
+        font-weight: 600;
+        color: var(--ink);
+        background: var(--card);
+        border: 1px solid #c8d1e2;
+        border-radius: 9px;
+        padding: 7px 14px;
+        cursor: pointer;
+        display: inline-block;
+        text-decoration: none;
+        line-height: 1.5;
+      }
+      button:hover,
+      a.btn:hover { background: #f3f6fc; }
+      button:focus-visible,
+      a.btn:focus-visible { outline: 3px solid #a9c2ff; outline-offset: 1px; }
+      button.primary,
+      a.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.primary:hover,
+      a.btn.primary:hover { background: #1f49c4; }
+      button.ghost { border-style: dashed; color: var(--ink-soft); }
+
+      /* Three columns: the save box hard against the left edge, the board in the middle, the tools
+         on the right. ⚠ **Named areas, not column order**, because the save box has to change
+         *shape* rather than just position as the window narrows — at three columns it is a tall
+         narrow card, and below that it lies across the top as one wide strip. Ordering plain grid
+         items would instead push it into whatever cell came next and leave the board sharing a row
+         with a half-width save card. */
+      .wrap {
+        display: grid;
+        grid-template-columns: minmax(220px, 264px) minmax(320px, 1fr) minmax(300px, 380px);
+        grid-template-areas: "save board tools";
+        gap: 28px;
+        align-items: start;
+        /* ⚠ Widened with the new column, not shared with it. Left at 1180 the third column comes
+           straight out of the board, and the board is the thing being edited. */
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 28px 24px 80px;
+      }
+      .savecol { grid-area: save; min-width: 0; }
+      .left { grid-area: board; }
+      .panel { grid-area: tools; }
+
+      /* Below this the three columns no longer fit without the board paying for it, so the save box
+         goes back to a full-width strip above the board — still the first thing on the page, which
+         is the point of moving it. */
+      @media (max-width: 1240px) {
+        .wrap {
+          grid-template-columns: minmax(320px, 1fr) minmax(300px, 380px);
+          grid-template-areas:
+            "save save"
+            "board tools";
+          max-width: 1180px;
+        }
+      }
+      @media (max-width: 860px) {
+        .wrap {
+          grid-template-columns: 1fr;
+          grid-template-areas:
+            "save"
+            "board"
+            "tools";
+        }
+      }
+
+      /* In the narrow column the three buttons stack; across the top strip they sit in one row.
+         Both fall out of `.row`'s existing wrap — nothing here forces either. */
+      .savecol .box { gap: 12px; }
+      /* ⚠ Sticky like `.panel`, and for the same reason: the board grows to seven rows and its key
+         runs long, so a save button pinned to the top of a column is a save button off the screen.
+         `top` matches the panel's, so the two columns line up against the header. */
+      @media (min-width: 1241px) {
+        .savecol { position: sticky; top: 82px; }
+        .savecol .row { gap: 8px; }
+        /* The level picker keeps its own line; the actions fill the width underneath, which reads
+           as one group rather than two buttons and an orphan. */
+        .savecol .row > .btn,
+        .savecol .row > button { flex: 1 1 100%; justify-content: center; text-align: center; }
+      }
+
+      /* ⚠ Across the top the same card must lie **flat**, not deep. Stacked — which is what the
+         column layout wants — its heading, three notes and two button rows are ~350px of a 900px
+         window standing between the header and the board, so the fix for a save button below the
+         fold pushes the board itself below the fold. Laid out in a row it is two lines. */
+      @media (min-width: 861px) and (max-width: 1240px) {
+        .savecol .box {
+          flex-direction: row;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 10px 20px;
+        }
+        .savecol .box > h2 { flex: 1 1 100%; }
+        .savecol .box > .hint { margin: 0; flex: 1 1 240px; }
+        .savecol .box > #book { flex: 0 1 auto; }
+      }
+
+      /* ⚠ "Lưu vào level" is not in this column and must not come back to it. It began at the top
+         of the right-hand panel, where its level picker, four buttons, saved-level list and two
+         notes pushed "Công cụ" — the control reached on every single edit — a long way down and
+         shoved Khay đôi, Khay mũi tên and Cửa xả off the bottom of the screen; an arrow tray's
+         direction picker that has to be scrolled to reads as one that does not exist, and was
+         reported that way. Moved under the board next, which cleared the panel but left the save
+         button below the fold on a 1000px window — the board and its four-row key are taller than
+         that on their own. It now has a column of its own at the left edge. */
+      .left {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        min-width: 0;
+      }
+
+      .stage {
+        background: var(--card);
+        border: 1px solid #d8dfec;
+        border-radius: 18px;
+        padding: 22px;
+        box-shadow: var(--shadow);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      /* One strip per box column, laid out the way the machine stacks them: index 0 on top and the
+         queue descending. ⚠ Not a horizontal queue, which is the compact way to draw it — the well
+         is vertical in the game and the designer is checking this against the game. */
+      .well {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 4px 0 2px;
+        /* ⚠ **Scrolls itself.** A stack is `trays × TRAY_N / BOX_SLOTS / BOX_COLS` deep — level 30
+           is 31 boxes a column, about 700px — so an uncapped well pushes the legend, and on a short
+           window the board itself, off the screen. The whole queue is still reachable; what it may
+           not do is cost the board its place on the page. */
+        max-height: 300px;
+        overflow: auto;
+      }
+      .wcol { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+      /* Sticky, or the column headings scroll away and four unlabelled strips of colour are left. */
+      .wcap {
+        font-size: 11px;
+        color: var(--ink-faint);
+        letter-spacing: 0.08em;
+        position: sticky;
+        top: 0;
+        background: var(--card);
+        padding: 2px 4px;
+        z-index: 1;
+      }
+      .wbox {
+        width: 52px;
+        height: 20px;
+        border-radius: 6px;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.16);
+      }
+      /* The open box is the one the board is asking for right now, so it is the one that carries
+         its holes — the same thing that separates it on screen. */
+      .wbox.open { height: 26px; outline: 2px solid #2b3550; outline-offset: 1px; }
+      .whole {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.3);
+        box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.35);
+      }
+      /* A hole with a marble in it: raised, not recessed, so filled and empty differ in shape and
+         not only in shade — the box under them is already every colour in the palette. */
+      .whole.on { box-shadow: 0 1px 1px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+      /* ⚠ Colour **and** the mark, never one instead of the other. The player sees a grey box; the
+         designer has to see which colour is hiding under it, or the queue cannot be read at all —
+         the same bargain the `?` trays already make on the board above. */
+      .wbox.hid::after {
+        content: "?";
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font: 700 13px/1 "Lilita One", system-ui, sans-serif;
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+      }
+      .wbox.hid.open::after { font-size: 15px; }
+      /* Past what the machine shows, the rest of the queue is still real and still decides the
+         level; it is just not on the player's screen yet. */
+      .wbox.deep { opacity: 0.55; }
+      .well .none { font-size: 13px; color: var(--ink-faint); }
+      /* ⚠ An always-visible scrollbar, not the overlay one. The well is a strip of colour inside a
+         page that scrolls too, so an overlay bar that fades out leaves nothing saying the queue
+         continues below — and the boxes that go missing are the deep ones nobody would think to
+         look for. `scrollbar-gutter` keeps the columns from shifting when it appears. */
+      .well { scrollbar-gutter: stable; scrollbar-width: thin; }
+      .well::-webkit-scrollbar { width: 10px; }
+      .well::-webkit-scrollbar-thumb { background: #c3ccdd; border-radius: 6px; }
+      .well::-webkit-scrollbar-thumb:hover { background: #a9b5cc; }
+      .well::-webkit-scrollbar-track { background: #eef2f8; border-radius: 6px; }
+
+      .wbox { cursor: grab; touch-action: none; user-select: none; }
+      .wbox.dragging { cursor: grabbing; opacity: 0.45; }
+      /* The gap the box will land in. A line rather than a highlighted neighbour: the question is
+         "between which two", and highlighting a box answers "which one" instead. */
+      .wmark {
+        width: 52px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--accent);
+        margin: -4px 0;
+      }
+      .wrow { justify-content: center; gap: 10px; margin-top: 2px; }
+      .playbar { margin-top: 6px; }
+
+      /* The rail, as the model has it: one chip per belt slot, in order, wrapping. ⚠ Not a loop
+         drawn to scale — the question this answers is "what is riding round and is there room",
+         and a faithful stadium shape makes 30 slots unreadable in a 380px column. */
+      .belt {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 3px;
+        padding: 8px 10px;
+        background: var(--body);
+        border-radius: 12px;
+        margin-top: 6px;
+      }
+      .belt[hidden] { display: none; }
+      .bslot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #cfd7e6;
+        box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.18);
+      }
+      .bslot.empty { background: #dde3ee; box-shadow: none; }
+      /* The entry slot, so a chute backing up has somewhere visible to back up *from*. */
+      .bslot.entry { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .playnote { text-align: center; margin-top: 6px; }
+      .playnote.won { color: #157a3a; font-weight: 600; }
+      .playnote.lost { color: #a71c1c; font-weight: 600; }
+      /* While the level is being played the board is not being drawn on, and the cursor has to say
+         so — every cell is a tap, and a tool click would otherwise look like it should paint. */
+      .playing #board .cell { cursor: pointer; }
+      .wstate { font-size: 12.5px; color: var(--ink-soft); }
+      .wstate.on { color: var(--accent); font-weight: 600; }
+
+      .stage-body {
+        background: var(--body);
+        border-radius: 22px;
+        padding: 26px;
+        display: flex;
+        justify-content: center;
+      }
+
+      /* The board. Each cell carries its own edge lines, so the union reads as one rim. */
+      #board {
+        display: grid;
+        gap: 0;
+        touch-action: none;
+        user-select: none;
+      }
+      .cell {
+        position: relative;
+        width: 62px;
+        height: 62px;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        background: var(--recess);
+      }
+      .cell.wall { background: var(--body); }
+      .cell .edge {
+        position: absolute;
+        background: var(--rim);
+        pointer-events: none;
+      }
+      .cell .edge.t { left: -4px; right: -4px; top: -4px; height: 4px; }
+      .cell .edge.b { left: -4px; right: -4px; bottom: -4px; height: 4px; }
+      .cell .edge.l { top: -4px; bottom: -4px; left: -4px; width: 4px; }
+      .cell .edge.r { top: -4px; bottom: -4px; right: -4px; width: 4px; }
+
+      .cell .face {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        font-family: "Lilita One", sans-serif;
+        font-size: 20px;
+        color: #fff;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.28);
+      }
+      .cell.floor .face { background: var(--slot); box-shadow: inset 0 2px 3px rgba(43,53,80,.1); }
+      .cell.wall .face { background: transparent; }
+      .cell.crate .face { background: #8a5a33; box-shadow: inset 0 -3px 0 rgba(0,0,0,.25); }
+      .cell.crate .face::after {
+        content: "";
+        width: 26px; height: 26px;
+        background:
+          linear-gradient(to bottom right, transparent 44%, #6b4526 44%, #6b4526 56%, transparent 56%),
+          linear-gradient(to bottom left, transparent 44%, #6b4526 44%, #6b4526 56%, transparent 56%);
+      }
+      .cell.hatch .face {
+        background: #5b6a86;
+        box-shadow: inset 0 -3px 0 rgba(0,0,0,.3);
+        position: relative;
+      }
+      /* The shutter, drawn on the side the trays come out of. */
+      .cell.hatch .face::before {
+        content: "";
+        position: absolute;
+        background: #2f3a4f;
+        border-radius: 3px;
+      }
+      .face.shutter-down::before { left: 7px; right: 7px; bottom: 4px; height: 7px; }
+      .face.shutter-left::before { top: 7px; bottom: 7px; left: 4px; width: 7px; }
+      .face.shutter-right::before { top: 7px; bottom: 7px; right: 4px; width: 7px; }
+      .cell.tile .face { box-shadow: inset 0 -3px 0 rgba(0,0,0,.22); }
+      /* nine eggs standing proud — the game's own readout for a tray.
+         ⚠ `.linkedRight` too. The right half of a linked pair lives in a cell the blueprint calls
+         floor — the pair is stored once, at the left cell — so scoping this to `.cell.tile` alone
+         drew that half flat and it read as locked while its own left half read as free. */
+      .cell.tile .face.eggs,
+      .cell.linkedRight .face.eggs {
+        background-image:
+          radial-gradient(circle at 26% 26%, rgba(255,255,255,.9) 3px, transparent 3.2px),
+          radial-gradient(circle at 50% 26%, rgba(255,255,255,.9) 3px, transparent 3.2px),
+          radial-gradient(circle at 74% 26%, rgba(255,255,255,.9) 3px, transparent 3.2px),
+          radial-gradient(circle at 26% 50%, rgba(255,255,255,.9) 3px, transparent 3.2px),
+          radial-gradient(circle at 50% 50%, rgba(255,255,255,.9) 3px, transparent 3.2px),
+          radial-gradient(circle at 74% 50%, rgba(255,255,255,.9) 3px, transparent 3.2px),
+          radial-gradient(circle at 26% 74%, rgba(255,255,255,.9) 3px, transparent 3.2px),
+          radial-gradient(circle at 50% 74%, rgba(255,255,255,.9) 3px, transparent 3.2px),
+          radial-gradient(circle at 74% 74%, rgba(255,255,255,.9) 3px, transparent 3.2px);
+      }
+      /* A tray a hatch pushes out before the player ever sees the board — it is not yours to
+         edit, so it is drawn as something the board does rather than something you placed. */
+      .cell .face.ghost { opacity: 0.5; }
+      /* Marked "?" in the drawing but face-up by the first frame. */
+      .cell.revealed::after {
+        content: "";
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #d8a01e;
+        box-shadow: 0 0 0 2px var(--recess);
+        z-index: 2;
+      }
+      /* Which colour is under a face-down tile. Editor-only, so it sits outside the tile face
+         rather than tinting it — the tile itself has to look like what the player will see. */
+      .swatchdot {
+        position: absolute;
+        left: 6px;
+        bottom: 6px;
+        width: 11px;
+        height: 11px;
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.75);
+        pointer-events: none;
+        z-index: 2;
+      }
+      /* The arrow lock, on the tray's face. Dark disc + white glyph, the same two tones the
+         game bakes, because a coloured arrow on a coloured tray is the one pair that vanishes. */
+      .arrowMark {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 26px;
+        height: 26px;
+        line-height: 26px;
+        text-align: center;
+        color: #fff;
+        font-size: 22px;
+        font-weight: 700;
+        /* White only, like the game. The shadow is what carries it on a yellow or cyan tray —
+           see the note on the baked texture. */
+        text-shadow: 0 2px 2px rgba(16, 26, 48, 0.55), 0 0 3px rgba(16, 26, 48, 0.5);
+        pointer-events: none;
+        z-index: 3;
+      }
+      .arrowMark.gone {
+        opacity: 0.4;
+      }
+      .cell.sel::before {
+        content: "";
+        position: absolute;
+        inset: 2px;
+        border: 3px solid var(--accent);
+        border-radius: 14px;
+        pointer-events: none;
+        z-index: 2;
+      }
+
+      /* Legend. Each swatch is the real thing at a smaller size, not a redrawing of it — a key
+         that only approximates the board teaches the wrong shape. */
+      .key {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        font-size: 13px;
+        color: var(--ink-soft);
+        border-top: 1px solid #eef1f7;
+        padding-top: 14px;
+      }
+      .keyrow { display: flex; align-items: center; gap: 11px; }
+      .keyart {
+        position: relative;
+        width: 30px;
+        height: 30px;
+        flex: none;
+      }
+      .kdot,
+      .keggs,
+      .kghost {
+        position: absolute;
+        inset: 0;
+        border-radius: 8px;
+        background: #ffd020;
+        box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22);
+      }
+      .kdot::after {
+        content: "";
+        position: absolute;
+        top: -3px;
+        right: -3px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #d8a01e;
+        box-shadow: 0 0 0 2px var(--card);
+      }
+      .keggs {
+        background-color: #23bb45;
+        background-image:
+          radial-gradient(circle at 26% 26%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px),
+          radial-gradient(circle at 50% 26%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px),
+          radial-gradient(circle at 74% 26%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px),
+          radial-gradient(circle at 26% 50%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px),
+          radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px),
+          radial-gradient(circle at 74% 50%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px),
+          radial-gradient(circle at 26% 74%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px),
+          radial-gradient(circle at 50% 74%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px),
+          radial-gradient(circle at 74% 74%, rgba(255, 255, 255, 0.9) 2px, transparent 2.2px);
+      }
+      .kghost { background: #a341f0; opacity: 0.5; }
+      .khid {
+        position: absolute;
+        inset: 0;
+        border-radius: 8px;
+        background: #7b89a4;
+        box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22);
+        display: grid;
+        place-items: center;
+        font-family: "Lilita One", sans-serif;
+        font-size: 15px;
+        color: #fff;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+      }
+      .kchip {
+        position: absolute;
+        left: 3px;
+        bottom: 3px;
+        width: 9px;
+        height: 9px;
+        border-radius: 3px;
+        background: #23bb45;
+        border: 1px solid rgba(255, 255, 255, 0.75);
+      }
+
+      .panel {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        position: sticky;
+        top: 82px;
+      }
+      .box {
+        background: var(--card);
+        border: 1px solid #d8dfec;
+        border-radius: 16px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      /* The clip of a linked pair, drawn across the seam between its two cells. */
+      .cell.linked::after {
+        content: "";
+        position: absolute;
+        right: -5px;
+        top: 50%;
+        width: 12px;
+        height: 16px;
+        margin-top: -8px;
+        border-radius: 4px;
+        background: #fff;
+        border: 2px solid #9fb0cb;
+        z-index: 3;
+      }
+      .cell.linkedRight .face {
+        opacity: 0.96;
+      }
+      /* A chocolate box: a slab of chocolate tied with two ribbons. The ribbon colour is the rule
+         — which trays count toward opening it — so it has to be the loudest thing after the
+         number. Drawn as a cross rather than a rim: a rim reads as "a tray of this colour", and
+         the box would look like one more tile in the row instead of a lid over four. */
+      .cell .face.chocFace {
+        background: #6b4423;
+        border-radius: 10px;
+        font-size: 20px;
+        overflow: visible;
+        box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.3);
+        text-shadow: none;
+        color: #4a2c14;
+      }
+      .cell .face.chocFace .ribbon {
+        position: absolute;
+        border-radius: 2px;
+        box-shadow: 0 1px 2px rgba(20, 10, 4, 0.45);
+      }
+      /* The counter's pale disc, painted **into the background** rather than as a ::after layer.
+         ⚠ A pseudo-element needs z-index to clear the ribbons and then it clears the number too,
+         or sits behind the face's own background and never shows at all — which is what a
+         `z-index: -1` disc did. As a radial stop it is simply part of the face, under the text. */
+      .cell .face.chocFace.chocNum {
+        background:
+          radial-gradient(circle at 50% 50%, #f7f1e4 0 16px, transparent 16px),
+          #6b4423;
+      }
+
+      /* ⚠ `display: flex` above beats the browser's own `[hidden] { display: none }`, so a box
+         toggled with .hidden stays on screen showing its empty state. */
+      .box[hidden] { display: none; }
+      .box h2 {
+        font-family: "Lilita One", sans-serif;
+        font-size: 12px;
+        font-weight: 400;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+        margin: 0;
+      }
+
+      .tools { display: flex; flex-direction: column; gap: 7px; }
+      .tool {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        text-align: left;
+        padding: 9px 12px;
+        width: 100%;
+      }
+      .tool[aria-pressed="true"] {
+        background: #eaf0ff;
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .tool .key {
+        margin-left: auto;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        color: var(--ink-faint);
+        border: 1px solid #d8dfec;
+        border-radius: 5px;
+        padding: 0 5px;
+      }
+      .tool .chip { width: 20px; height: 20px; border-radius: 6px; flex: none; }
+
+      .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+      .sw {
+        width: 38px; height: 38px;
+        border-radius: 10px;
+        border: 3px solid transparent;
+        cursor: pointer;
+        padding: 0;
+      }
+      /* ⚠ Both selectors. The main brush row marks itself with aria-pressed, the chocolate box's
+         two rows with .sel — a swatch row that cannot show which swatch is live is a row you have
+         to click to find out, which is most of what made picking colours here awkward. */
+      .sw[aria-pressed="true"],
+      .sw.sel { border-color: var(--ink); }
+
+      .queue { display: flex; flex-wrap: wrap; gap: 7px; min-height: 34px; align-items: center; }
+      .qchip {
+        width: 38px; height: 38px;
+        border-radius: 10px;
+        border: 3px solid transparent;
+        outline: 1px solid rgba(0,0,0,.12);
+        outline-offset: -3px;
+        cursor: pointer;
+        padding: 0;
+        position: relative;
+        font-family: "Lilita One", sans-serif;
+        font-size: 15px;
+        color: #fff;
+        text-shadow: 0 2px 0 rgba(0,0,0,.35);
+      }
+      .qchip[aria-pressed="true"] { border-color: var(--ink); }
+      /* The push order, so a chip's place in the row is readable without counting along it. */
+      .qchip .idx {
+        position: absolute;
+        top: -7px;
+        left: -7px;
+        width: 17px; height: 17px;
+        border-radius: 50%;
+        background: var(--card);
+        border: 1px solid #c8d1e2;
+        color: var(--ink-soft);
+        font-family: ui-monospace, monospace;
+        font-size: 10px;
+        line-height: 15px;
+        text-shadow: none;
+      }
+      .empty-note { color: var(--ink-faint); font-size: 13px; }
+
+      .bookrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 0;
+        border-bottom: 1px solid #eef1f7;
+      }
+      .bookrow:last-child { border-bottom: 0; }
+      .bookrow .n {
+        font-family: "Lilita One", sans-serif;
+        font-size: 15px;
+        min-width: 62px;
+      }
+      .bookrow .meta { color: var(--ink-faint); font-size: 12.5px; margin-right: auto; }
+      .bookrow button { padding: 3px 9px; font-size: 13px; }
+      code {
+        font-family: ui-monospace, "Cascadia Mono", monospace;
+        font-size: 0.9em;
+        background: #f1f4fa;
+        border: 1px solid #dee5f0;
+        border-radius: 5px;
+        padding: 1px 5px;
+      }
+
+      .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      label.inline { display: flex; align-items: center; gap: 7px; font-size: 14px; }
+      select, input[type="number"] {
+        font: inherit;
+        padding: 5px 8px;
+        border: 1px solid #c8d1e2;
+        border-radius: 8px;
+        background: var(--card);
+        color: var(--ink);
+      }
+
+      .issues { display: flex; flex-direction: column; gap: 7px; font-size: 13.5px; }
+      .issue { display: flex; gap: 8px; align-items: flex-start; }
+      .issue .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; }
+      /* A fatal problem means the level is unplayable, so it gets more than a coloured dot —
+         it has to survive being glanced past on a panel full of counters. */
+      .issue.fatal {
+        background: #fdeef1;
+        border: 1px solid #f0c2cd;
+        border-radius: 10px;
+        padding: 9px 11px;
+        color: #8d2338;
+        font-weight: 600;
+      }
+      .issue.fatal .dot { background: var(--bad); }
+      .issue.warn .dot { background: #d8a01e; }
+      .issue.ok .dot { background: var(--good); }
+
+      .stat { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+      .stat b { font-variant-numeric: tabular-nums; }
+
+      textarea {
+        font-family: ui-monospace, "Cascadia Mono", monospace;
+        font-size: 12px;
+        width: 100%;
+        min-height: 120px;
+        border: 1px solid #c8d1e2;
+        border-radius: 10px;
+        padding: 10px;
+        resize: vertical;
+        background: #fbfcfe;
+        color: var(--ink);
+      }
+      .hint { color: var(--ink-faint); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Level Editor</h1>
+      <span class="badge" id="badge">Level 1 · chưa lưu</span>
+      <label class="inline">
+        Số cột
+        <select id="cols">
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6" selected>6</option>
+          <option value="7">7</option>
+        </select>
+      </label>
+      <label class="inline">
+        Số hàng
+        <select id="rows">
+          <option value="4">4</option>
+          <option value="5" selected>5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+        </select>
+      </label>
+      <label class="inline" title="Cho bot chơi thử sau mỗi lần sửa, và so số khay với level máy sinh">
+        <input type="checkbox" id="measure" />
+        Đo độ khó
+      </label>
+      <button id="check">Kiểm tra</button>
+      <a
+        id="look"
+        class="btn primary"
+        href="./index.html?custom=1&amp;preview=1"
+        target="_blank"
+        rel="noopener"
+        title="Vẽ bảng bằng giao diện game thật, không chạy — chỉ để nhìn"
+        >Xem bảng</a
+      >
+      <a id="play" class="btn" href="./index.html?custom=1" target="_blank" rel="noopener"
+        >Chơi thử</a
+      >
+      <button id="clear" class="ghost">Xoá hết</button>
+    </header>
+
+    <div class="wrap">
+      <div class="savecol">
+        <div class="box">
+          <h2>Lưu vào level</h2>
+          <div class="row">
+            <label class="inline">
+              Level
+              <input type="number" id="lvlNum" min="1" max="200" value="1" style="width: 76px" />
+            </label>
+            <button id="saveLvl" class="primary">Lưu</button>
+            <a
+              id="lookLvl"
+              class="btn"
+              href="./index.html?level=1&amp;preview=1"
+              target="_blank"
+              rel="noopener"
+              >Xem level này</a
+            >
+            <a id="playLvl" class="btn" href="./index.html?level=1" target="_blank" rel="noopener"
+              >Chơi level này</a
+            >
+          </div>
+          <p class="hint">
+            Không mở được tab? Dán thẳng địa chỉ này: <code id="playUrl">index.html?level=1</code>
+          </p>
+          <div id="book" class="issues"></div>
+          <p class="hint">
+            Lưu ở đây chỉ nằm trong trình duyệt máy này. Muốn level đi theo bản build thì bấm
+            <b>Xuất tất cả</b> rồi dán khối đó vào <code>src/game/handmade.ts</code>.
+          </p>
+          <div class="row">
+            <button id="exportAll">Xuất tất cả</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="left">
+        <div class="stage">
+          <div class="stage-body"><div id="board"></div></div>
+
+          <!-- The box well, in the order the game stacks it: the open box on top of each column,
+               the queue behind it going down. The editor never *draws* boxes — they are derived
+               from the trays — so this is the only place the designer can see what that derivation
+               produced, which is the half of the level that decides whether it can be won. -->
+          <p class="hint wlabel">
+            <b>Hộp dưới</b> — sinh ra từ khay, xếp đúng thứ tự trong game: hộp mở ở trên cùng mỗi
+            cột, hàng đợi nằm dưới. Ô có <b>?</b> là hộp người chơi chưa thấy màu; ở đây hiện cả
+            màu thật lẫn dấu <b>?</b>. Ô mờ là phần sâu hơn <b>5</b> hộp, máy chưa hiện tới.
+            <b>Kéo một hộp</b> để đổi chỗ — thứ tự hộp là đòn bẩy lớn nhất bản vẽ có với độ khó.
+          </p>
+          <div class="row wrow">
+            <span id="wellState" class="wstate"></span>
+            <button id="wellAuto" class="ghost" hidden>Sắp lại tự động</button>
+          </div>
+
+          <!-- Playing the drawing in place. The point is not to replace "Chơi thử" — that opens the
+               real machine — but to close the loop between arranging the well and finding out where
+               the order goes wrong, without leaving the page you would fix it on. -->
+          <div class="row wrow playbar">
+            <button id="playRun" class="primary">▶ Chơi thử tại đây</button>
+            <button id="playAgain" class="ghost" hidden>Chơi lại</button>
+            <label class="inline" id="playSpeedWrap" hidden>
+              Tốc độ
+              <select id="playSpeed">
+                <option value="1">×1</option>
+                <option value="3" selected>×3</option>
+                <option value="8">×8</option>
+              </select>
+            </label>
+          </div>
+          <div class="belt" id="belt" hidden></div>
+          <p class="hint playnote" id="playNote" hidden></p>
+          <div class="well" id="well"></div>
+          <p class="hint">
+            Bấm để đặt, giữ và kéo để vẽ liên tục. Phím <b>0</b>–<b>9</b> đổi công cụ nhanh — <b>0</b> là chọn, không vẽ đè.
+            Bấm vào cửa xả đã đặt để sửa hàng đợi màu của nó.
+          </p>
+
+          <!-- The board is drawn as the game will show it, so its three tells need naming: a
+               symbol nobody can look up is a symbol nobody reads. -->
+          <div class="key">
+            <div class="keyrow">
+              <span class="keyart"><span class="kdot"></span></span>
+              <span>Chấm vàng: ô <b>?</b> này sẽ lộ màu ngay khi vào màn — khay hở một hướng thì
+                không úp được. Hàng dưới cùng luôn hở, vì nó nằm trên miệng phễu</span>
+            </div>
+            <div class="keyrow">
+              <span class="keyart"><span class="keggs"></span></span>
+              <span>Trứng nổi: khay bấm được ngay. Phẳng lì: đang bị khoá</span>
+            </div>
+            <div class="keyrow">
+              <span class="keyart"><span class="khid">?</span><span class="kchip"></span></span>
+              <span>Ô <b>?</b> xám: người chơi chưa thấy màu. Chấm nhỏ góc dưới là màu thật, chỉ editor thấy</span>
+            </div>
+            <div class="keyrow">
+              <span class="keyart"><span class="kghost"></span></span>
+              <span>Ô mờ: khay do cửa xả phía trên đẩy xuống trước khi màn bắt đầu</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="panel">
+        <div class="box">
+          <h2>Công cụ</h2>
+          <div class="tools" id="tools"></div>
+        </div>
+
+        <div class="box">
+          <h2>Màu</h2>
+          <div class="swatches" id="swatches"></div>
+        </div>
+
+        <div class="box" id="pairBox" hidden>
+          <h2>Khay đôi</h2>
+          <div class="row"><span class="hint">Hai khay dính nhau, bấm một cái rơi cả hai — mỗi nửa mang màu riêng.</span></div>
+          <div class="queue" id="pairSlots"></div>
+          <p class="hint">
+            Bấm một nửa để chọn, rồi bấm màu ở bảng <b>Màu</b>. Nửa phải chiếm ô bên cạnh, nên ô
+            đó phải đang trống.
+          </p>
+          <div class="row">
+            <label class="inline">
+              <input type="checkbox" id="pairHidden" />
+              Vào game hiện dấu ?
+            </label>
+            <button id="pairDrop" class="ghost">Tách đôi</button>
+          </div>
+        </div>
+
+        <div class="box" id="chocBox" hidden>
+          <h2>Hộp socola</h2>
+          <div class="row">
+            <label class="inline">
+              Số khay cần đổ
+              <input type="number" id="chocNeed" min="1" max="40" value="4" style="width: 68px" />
+            </label>
+            <label class="inline">
+              <input type="checkbox" id="chocRainbow" />
+              Viền nhiều màu
+            </label>
+          </div>
+          <div class="row"><span class="hint" id="chocSupply"></span></div>
+
+          <h3>Ruy băng</h3>
+          <div class="swatches" id="chocBorder"></div>
+          <p class="hint">
+            Ruy băng một màu chỉ đếm khay đúng màu đó — bấm một màu ở đây là <b>tô luôn cả bốn
+            khay bên trong</b> theo màu ruy băng, vì hộp một màu thì bên trong cùng màu. Ruy băng
+            nhiều màu đếm khay màu nào cũng được, và bốn khay bên trong tuỳ ý.
+          </p>
+
+          <h3>Bốn khay bên trong</h3>
+          <div class="queue" id="chocSlots"></div>
+          <div class="swatches" id="chocUnder"></div>
+          <p class="hint">
+            Bấm một ô để chọn, rồi bấm màu ngay dưới — chọn xong tự nhảy sang ô kế.
+          </p>
+          <div class="row">
+            <label class="inline">
+              <input type="checkbox" id="chocHidden" />
+              Khay đang chọn là khay ?
+            </label>
+            <button id="chocSame" class="ghost">Tô cả 4 cùng màu</button>
+          </div>
+        </div>
+
+        <div class="box" id="arrowBox" hidden>
+          <h2>Khay mũi tên</h2>
+          <div class="row">
+            <label class="inline">
+              Mũi tên chỉ
+              <select id="aDir">
+                <option value="up">lên trên</option>
+                <option value="down">xuống dưới</option>
+                <option value="left">sang trái</option>
+                <option value="right">sang phải</option>
+              </select>
+            </label>
+          </div>
+          <div class="row"><span class="hint" id="aWhere"></span></div>
+          <p class="hint">
+            Khay này <b>khoá</b> — chín quả nằm bẹp, chạm không ăn — cho tới khi ô mà mũi tên chỉ
+            vào trống ra. Đổ khay bên cạnh đó xong là khay này bung lên.
+          </p>
+          <p class="hint">
+            Mũi tên chỉ vào <b>thành máy, thùng gỗ hay ra ngoài mép bảng</b> thì không bao giờ mở
+            được, và level không thể thắng — bảng Tình trạng báo đỏ. Chỉ vào ô trống thì nó mở ngay
+            từ đầu, người chơi không kịp thấy mũi tên.
+          </p>
+        </div>
+
+        <div class="box" id="hatchBox" hidden>
+          <h2>Cửa xả</h2>
+          <div class="row">
+            <label class="inline">
+              Số khay
+              <input type="number" id="qCount" min="1" max="9" value="2" style="width: 68px" />
+            </label>
+            <label class="inline">
+              Đẩy ra
+              <select id="qDir">
+                <option value="down">xuống dưới</option>
+                <option value="left">sang trái</option>
+                <option value="right">sang phải</option>
+              </select>
+            </label>
+          </div>
+          <div class="row"><span class="hint" id="qWhich"></span></div>
+          <div class="queue" id="queue"></div>
+          <p class="hint">
+            Thứ tự trái sang phải là thứ tự đẩy ra. Bấm một ô để chọn, rồi bấm màu ở bảng
+            <b>Màu</b> — chọn xong nó tự nhảy sang ô kế, nên điền một lượt được cả hàng.
+          </p>
+          <div class="row">
+            <label class="inline">
+              <input type="checkbox" id="qhidden" />
+              Khay đang chọn vào game hiện dấu <b>?</b>
+            </label>
+          </div>
+        </div>
+
+        <div class="box">
+          <h2>Tình trạng</h2>
+          <div id="stats"></div>
+          <div class="issues" id="issues"></div>
+        </div>
+
+        <div class="box">
+          <h2>JSON</h2>
+          <textarea id="json" spellcheck="false"></textarea>
+          <div class="row">
+            <button id="export">Xuất</button>
+            <button id="import">Nhập</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/editor/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,1617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AstroBall — real games</title>
+<style>
+  :root { --bg:#eef2f7; --panel:#fff; --ink:#2b3550; --soft:#6b7490; --line:#dde3ee; --accent:#2f6fe0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#171a22; --panel:#20242e; --ink:#e6e9f2; --soft:#9aa2b8; --line:#313644; --accent:#7aa7f0; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 60px; background:var(--bg); color:var(--ink);
+         font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; }
+  h1 { font-size:1.4rem; margin:0 0 2px; }
+  .sub { color:var(--soft); margin:0 0 18px; }
+  .bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
+  select, button, input[type="date"], input[type="datetime-local"] {
+                   font:inherit; padding:6px 10px; border-radius:8px; border:1px solid var(--line);
+                   background:var(--panel); color:var(--ink); }
+  /* The custom-range controls sit as one group, so they read as one control rather than three
+     that happen to be adjacent — and the group hides whole when a preset is chosen. */
+  .pick { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .pick[hidden] { display:none; }
+  .pick .sep { color:var(--soft); }
+  button { cursor:pointer; }
+  label { display:flex; align-items:center; gap:6px; color:var(--soft); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .card .n { font-size:1.7rem; font-weight:700; }
+  .card .k { color:var(--soft); }
+  .card .d { color:var(--soft); font-size:.85em; margin-top:2px; }
+  h2 { font-size:1rem; margin:24px 0 6px; }
+  /* The A/B pair. ⚠ Two tables side by side are only readable while their rows LINE UP, which is
+     why both are drawn over the union of both arms' levels and a level missing from one arm keeps
+     its row there. Below 1100px they stack and the alignment is gone — that is the honest failure,
+     since two half-width tables of numbers are unreadable on a phone either way. */
+  /* ⚠ The A/B level table pairs the two arms INSIDE each metric — "Người A, Người B, Ván A,
+     Ván B…" — rather than putting two whole tables side by side. Which means the reader needs to
+     see where one metric ends and the next begins, or thirteen numbers read as one run: `.g` is
+     the first column of each group and carries the divider. */
+  #tAbLv th, #tAbLv td { padding:5px 7px; }
+  #tAbLv th.g, #tAbLv td.g { border-left:1px solid var(--line); }
+  /* ⚠ Headers align RIGHT here, unlike the other tables. The metric is named over the A column
+     only, so a left-aligned label would sit at the far edge of a two-column group and read as
+     belonging to whatever is left of it — which is the previous metric's B column. */
+  #tAbLv th { text-align:right; vertical-align:bottom; }
+  #tAbLv th:first-child { text-align:left; }
+  /* The A/B marker under each header. Quiet on purpose: the metric is what you scan for, the arm
+     is what you check once you have found it. */
+  .arm { color:var(--soft); font-weight:600; }
+  b.arm { color:var(--accent); }
+  /* The three boards the test is actually about; every other row on those tables is downstream. */
+  tr.abhit td { background:rgba(122,167,240,.16); font-weight:600; }
+  .note { color:var(--soft); font-size:.87em; margin:0 0 10px; }
+  .scroll { overflow:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:6px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  /* ⚠ Headers wrap, **cells do not**. `th, td` above sets `nowrap` for the cells and that has to
+     stay: a wrapped number is a number split across two lines, and these columns are read by
+     scanning down them. The headers are the only text on the table wide enough to be worth
+     breaking, and they are broken at chosen points with <br> rather than left to the browser —
+     "Winrate/game" has no space in it, so `white-space:normal` alone would not wrap it at all and
+     the column would stay exactly as wide as it was.
+     ⚠ `vertical-align:bottom` so a one-line header sits on the same baseline as a two-line one;
+     without it the short headers float to the top of a taller row and the strip reads as ragged. */
+  thead th { position:sticky; top:0; background:var(--panel); color:var(--soft); font-weight:600; z-index:2;
+             white-space:normal; vertical-align:bottom; line-height:1.25; }
+  /* Level (and Day) stays put while the rest scrolls sideways — the tables are wider than any
+     screen, and a row of numbers with the level scrolled off is a row of numbers about nothing.
+     ⚠ Needs its own background: a sticky cell floats over the cells passing beneath it, and a
+     transparent one shows both at once. */
+  th:first-child, td:first-child { position:sticky; left:0; background:var(--panel); z-index:1; }
+  thead th:first-child { z-index:3; }
+  /* ⚠ And in the by-level table, **Winrate/game rides along with it**. It is the one number the
+     table exists for, so parking it next to Level and then letting it scroll away would undo the
+     move. A second sticky column needs an exact left offset, which means pinning the first
+     column's width — border-box, or the 10px padding lands outside the 62 and the two overlap. */
+  #tLv th:first-child, #tLv td:first-child { box-sizing:border-box; width:62px; min-width:62px; }
+  #tLv th:nth-child(2), #tLv td:nth-child(2) {
+    position:sticky; left:62px; background:var(--panel); z-index:1; box-shadow:1px 0 0 var(--line);
+  }
+  #tLv thead th:nth-child(2) { z-index:3; }
+  .good { color:#2e9b57; } .warn { color:#c98a12; } .bad { color:#d2452f; }
+  /* Winrate's own five-step ramp, red at the bottom to green at the top.
+     ⚠ Deliberately NOT .good/.warn/.bad. Those carry a fixed meaning on Quit, Won & left, Drop-off
+     and Peak belt — where high really is bad — and winrate runs the other way. Sharing the classes
+     would mean any future tweak to the ramp silently repainted four unrelated columns. */
+  .wr1 { color:#d2452f; } .wr2 { color:#e0762a; } .wr3 { color:#c98a12; }
+  /* ⚠ 70-90 is the **plain ink**, not a colour of its own — `var(--ink)`, never a literal `#000`,
+     or the band goes invisible on the dark ground. It is the "nothing to see here" step: a level
+     landing where it was aimed does not need to shout, and reserving colour for the ends is what
+     makes the ends carry. It does mean this band looks identical to an uncoloured number, so any
+     winrate that is *not* on the ramp becomes indistinguishable from a healthy one — which is the
+     whole reason every winrate on the page goes through `band`. */
+  .wr4 { color:var(--ink); } .wr5 { color:#2e9b57; }
+  /* The warm tones go muddy on a dark ground — lift the whole set together so the steps stay
+     evenly spaced rather than fixing the one that looks worst. */
+  @media (prefers-color-scheme: dark) {
+    .wr1 { color:#f2695a; } .wr2 { color:#f0913f; } .wr3 { color:#e0b23c; }
+    .wr5 { color:#4fc27e; }
+  }
+  .thin { color:var(--soft); }
+  /* The build labels carry two timestamps, and a select sizes itself to its widest option — left
+     alone it pushes the rest of the toolbar off the row. The popup still shows the full text. */
+  #build { max-width: 20rem; }
+  .spark { display:inline-block; height:9px; background:var(--accent); border-radius:2px; vertical-align:middle; }
+  .spark.n2 { background:var(--line); }
+  code { background:var(--bg); padding:1px 5px; border-radius:4px; }
+  #gate { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:28px; text-align:center; }
+  #uid { font-size:.87em; color:var(--soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AstroBall — real games</h1>
+  <p class="sub">Every finished level, straight from the Realtime Database. Bots are elsewhere.</p>
+
+  <div id="gate">
+    <p>Sign in with the Google account that owns the Firebase project.</p>
+    <button id="signin">Sign in with Google</button>
+    <p id="gateErr" class="note"></p>
+  </div>
+
+  <div id="app" hidden>
+    <div class="bar">
+      <select id="days">
+        <option value="0.0416667">last 1 hour</option>
+        <option value="0.0833333">last 2 hours</option>
+        <option value="0.25">last 6 hours</option>
+        <option value="0.5">last 12 hours</option>
+        <option value="1" selected>last 24 hours</option>
+        <option value="2">last 2 days</option>
+        <option value="7">last 7 days</option>
+        <option value="30">last 30 days</option>
+        <option value="9999">everything</option>
+        <option value="custom">khoảng tự chọn…</option>
+      </select>
+      <span class="pick" id="pick" hidden>
+        <select id="grain" title="Mức chọn: theo giờ hay theo ngày">
+          <option value="hour">theo giờ</option>
+          <option value="day">theo ngày</option>
+        </select>
+        <input type="datetime-local" id="from" step="3600" title="Mốc bắt đầu, giờ VN (+7)" />
+        <span class="sep">→</span>
+        <input type="datetime-local" id="to" step="3600" title="Mốc kết thúc, giờ VN (+7)" />
+        <button id="applyRange">áp dụng</button>
+      </span>
+      <select id="build"><option value="">all builds</option></select>
+      <label><input type="checkbox" id="excl" checked /> hide test games</label>
+      <button id="reload">reload</button>
+      <span id="status" class="note"></span>
+      <span style="flex:1"></span>
+      <span id="range" class="note"></span>
+      <button id="signout">sign out</button>
+    </div>
+    <p id="uid"></p>
+
+    <div class="cards" id="cards"></div>
+
+    <h2 id="hDayTitle">By day</h2>
+    <p class="note" id="hDay"></p>
+    <div class="scroll" style="max-height:44vh"><table id="tDay"></table></div>
+
+    <h2>By level</h2>
+    <div class="scroll" style="max-height:70vh"><table id="tLv"></table></div>
+
+    <p class="note" id="foot"></p>
+
+    <h2>A/B test — hai nhánh cạnh nhau</h2>
+    <p class="note" id="abNote"></p>
+    <div class="scroll" style="margin-bottom:14px"><table id="abSum"></table></div>
+    <p class="note" style="margin-bottom:6px">
+      Mỗi chỉ số có hai cột kề nhau: <b class="arm">A</b> là bản đang chạy, <b class="arm">B</b> là biến thể.
+      <b>User start</b> là số người vào màn (mỗi người tính một lần), <b>Lượt vào</b> là số lần vào —
+      chia hai số đó ra là số lần thử lại mỗi người. <b>Ván</b> là số ván kết thúc, <b>User xong</b> là
+      số người từng thắng màn này. <b>Win/ván</b> = thắng ÷ <b>Lượt vào</b>; <b>Win/người</b> =
+      <b>User xong</b> ÷ <b>User start</b>.
+      ⚠ Ô <b>mờ</b> nghĩa là dưới 8 ván nên chưa đọc được — median của một hai ván là chính một hai
+      ván đó, không phải đặc điểm của màn. Level ngoài 3, 4, 5 là <em>cùng một bàn cờ</em> ở hai nhánh,
+      nên chênh lệch ở đó gần như luôn là mẫu nhỏ.
+    </p>
+    <div class="scroll" style="max-height:66vh"><table id="tAbLv"></table></div>
+
+    <h2>Reading the columns</h2>
+    <p class="note">
+      <b>Winrate</b> — here, in the by-day table and on the cards at the top — runs low to high:
+      <span class="wr1">under 30%</span>,
+      <span class="wr2">30-50%</span>, <span class="wr3">50-70%</span>,
+      <span class="wr4">70-90%</span>, <span class="wr5">90%+</span>,
+      <span class="thin">grey</span> = fewer than 8 games, which is too few to mean anything.
+      ⚠ Green is high, not <em>correct</em>: the ladder aims each level at its own target, so a
+      green level well above target is a level that got easier than it was meant to be.
+      <br><br>
+      All three winrate columns are <b>completed ÷ started</b>, so <b>an attempt someone walked away
+      from counts against the level</b> — it used to be counted over finished attempts only, which
+      quietly deleted every abandonment from the maths and flattered exactly the levels people were
+      giving up on. They differ in who is counted:
+      <b>Winrate/game</b> = every attempt begun.
+      <b>Winrate/player</b> = players who ever cleared it ÷ players who ever started it.
+      <b>Winrate_c</b> = the same as /game but counting <em>only the players who cleared it in the
+      end</em>, so it is roughly how many goes it takes someone who can do it: 50% is two attempts,
+      33% is three. ⚠ It is not a success rate — by construction everyone in it succeeded — and it
+      can only fall as people retry.
+      ⚠ Read together they separate two different faults. Level 10 currently reads 48% / 85% / 73%:
+      most attempts end in failure, yet nearly everyone gets there, taking about one and a half
+      goes. A level where all three sag is a different problem from one where only the first does.
+      <br><br>
+      ⚠ <b>Only attempts the log can pair are counted</b> — an end row whose start row is missing is
+      dropped from both sides. Builds before start-logging sent no start rows, so their games are
+      absent from every winrate here (they still count in Games, Completed and Starts (user)).
+      Dividing raw wins by raw starts instead would put level 1 at <b>169%</b>.
+      <b>Starts (event)</b> = how many times this board was <em>entered</em>; a player who retried
+      it five times is five. <b>Starts (user)</b> = how many distinct <em>people</em> pressed start
+      on it. Both count the same rows — one per attempt, one per device — so <b>event ÷ user is
+      retries per player</b>, and event can never come out below user. Both include people who
+      arrived and walked away without finishing, which is what makes them the pair to read Quit
+      against.
+      ⚠ <b>Both show —, never 0, before start logging existed</b> (first start row: 19/08). Those
+      players did press start; the build simply never said so, and printing 0 beside a hundred
+      finished games would be a claim rather than a gap. Their games still count in Games,
+      Completed and Winrate/player, which are built from end rows.
+      ⚠ Starts (user) used to be the union of everyone <em>seen</em> at the level, inferring a start
+      from any finished attempt so that old builds were not lost. That number disagreed with the
+      column&rsquo;s own name and with Starts (event) beside it — level 1 read 318 events against 561
+      people — and there was no way to tell arrivals that were counted from arrivals that were
+      inferred. <b>Won &amp; left</b> still uses the seen-anywhere test, deliberately: an old-build
+      player who <em>finished</em> the next level plainly went there.
+      <b>% of L1</b> = this row's <b>Starts (user)</b> divided by level 1's — the funnel, in the
+      two numbers you can check by hand on the row itself, and blank for windows with no start rows
+      in them. ⚠ It is a ratio of two headcounts, not a
+      cohort: someone on level 30 today mostly started level 1 weeks ago, so a short window counts
+      them here and not at level 1, and the column <b>can go over 100%</b> — highlighted when it
+      does, because that is the shape of the window rather than a board more popular than the first.
+      ⚠ For the same reason it <em>rises</em> as the window shortens, which is the opposite of what
+      a funnel should do; read it on 7 or 30 days, where most of the people on a late board did
+      start level 1 inside it. <b>Hover the cell</b> for the cohort reading — of the people who
+      started level 1 <em>inside</em> this window, how many reached this board, and how many of the
+      players here began before the window and so are in the ratio's top half only. Level 1 is 100%
+      by construction; <b>&lt;1%</b> means somebody got there and whole percent would have rounded
+      them away, which is not the same as <b>0%</b>. Blank until level 1 has at least 8 players in
+      the window.
+      <b>Completed</b> = how many of those players ever cleared it.
+      <b>Gave up</b> = players who started the level, never won it, and never opened the next one
+      within <b>ten minutes</b> of that start — the ones who stopped playing here rather than moved
+      on. Not the same as <b>Quit</b> (one abandoned attempt) or <b>Won &amp; left</b> (they beat it
+      and never came back). Starts inside the last ten minutes of the window are excluded rather
+      than counted, since they have not had their ten minutes yet; the hover says how many. Both
+      timestamps come from the same device, so a wrong device clock cancels out here.<br><br>
+      <b>Lost or retried</b> = distinct players the board gave trouble to — they <em>lost at least
+      once</em>, <em>or</em> re-entered it, <em>or</em> started it more than twice — counted once
+      however many of the three they hit; <b>% of starts</b> is that over <b>Starts (user)</b>.
+      ⚠ <b>The log has no retry event</b>, so a retry is inferred from a second start row on the
+      same board. That makes "re-entered" and "more than twice" the same signal at two strengths,
+      and the hover splits all three so you can see which is carrying the number. ⚠ The price of
+      inferring it: a <b>page reload re-enters the board</b>, and so does coming back from an ad —
+      neither is a retry the player would recognise, and both land here. ⚠ <b>It is not the opposite
+      of Completed</b>
+      and the two overlap deliberately: somebody who failed twice and then cleared the board is in
+      both. That is what makes the pair worth reading together — a board where nearly everyone loses
+      once and nearly everyone finishes is a board that teaches, while the same Lost beside half the
+      Completed is a wall. Hover the cell for the split and for how many never cleared it.
+      ⚠ Counted over the start-logged players only — the same population the denominator counts, or
+      the percentage could print over 100. ⚠ Uncoloured on purpose — the ladder deliberately aims some
+      levels as low as 25%, so players losing is the design working, not a fault. ⚠ <b>—</b> where
+      there are no start rows to divide by, the same convention as the columns beside it.
+      <b>Quit</b> = <em>attempts</em> that reached the board and never came back with a result —
+      someone who walked away mid-level. ⚠ It is a percentage of <b>Starts (event)</b>, not of
+      Starts (user).
+      <b>Won &amp; left</b> = players who <em>cleared</em> this level and were never seen at the next
+      one. They did not leave because it was too hard, so this is the churn difficulty cannot
+      explain. ⚠ Read the last few rows with suspicion: the newest level in the window has no next
+      level to be absent from, and someone who cleared a board minutes ago has not had time to
+      start the one after it — both push this number up on their own.
+      <b>Drop-off</b> = players who started this level and never started the next one.
+      <b>% drop by lose</b> splits that into the part difficulty explains: of the players who left
+      after this board, how many had just <em>lost</em>. The rest had just <em>won</em> it and
+      stopped anyway. ⚠ Two levels with the same Drop-off can be opposite problems — a high number
+      here is a board beating people, a low one is churn the board cannot be blamed for and cannot
+      fix. ⚠ It counts each player's <b>last</b> attempt, so someone who lost twice and then cleared
+      it counts as a winner who left; they were not beaten. ⚠ The hover gives its own base, which is
+      the real set of people who left; the Drop-off percentage beside it is a ratio of two
+      headcounts, so the two are not meant to reconcile by hand.
+      ⚠ Under 8 leavers it shows the <b>raw pair</b> instead, greyed — <b>4/6</b>, not 67%. Its
+      base is a set difference and is far smaller than any other column&rsquo;s, so on a short window
+      most rows sit below any sane threshold; blanking them made the table read as though nobody
+      ever left after losing, when the counts were there all along.
+      <b>Time</b> is the <b>median</b> finished attempt on this board — half the attempts were
+      quicker, half slower — not the average. ⚠ The mean is the wrong middle here: an attempt is
+      timed until the player finishes it, so somebody who leaves the tab sitting on the board writes
+      a half-hour game, and a handful of those move a level's average and not its median. The mean
+      is still in the cell's <b>hover</b>, with how many attempts went into the figure; the two far
+      apart is itself the finding. ⚠ It counts <em>every</em> finished attempt, won or lost, and
+      counts <em>attempts</em> rather than players — someone who took four goes is in it four times.
+      Attempts nobody came back from (the Quit column) report no length at all, so they are in
+      neither number.
+      <b>Peak belt</b> is how full the conveyor ever got, averaged — the thing stars are scored on,
+      so a level near 100% is one nobody has slack on.
+    </p>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+// This config is PUBLIC by design and is not a secret: what may be read is decided by the
+// Realtime Database rules (one uid — see database.rules.json), not by hiding these lines.
+// ⚠ A database SECRET must never appear here. That one is admin, and this page is on the web.
+const app = initializeApp({
+  apiKey: "AIzaSyCdKUOGezba8aBslq-UqNdkbzj0Y9XYxTU",
+  authDomain: "ball-flow-d1d9a.firebaseapp.com",
+  databaseURL: "https://ball-flow-d1d9a-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "ball-flow-d1d9a",
+  appId: "1:733192915298:web:e0042ef6e15211f577443b",
+});
+const DB = "https://ball-flow-d1d9a-default-rtdb.asia-southeast1.firebasedatabase.app";
+const auth = getAuth(app);
+const $ = (id) => document.getElementById(id);
+
+$("signin").onclick = () => signInWithPopup(auth, new GoogleAuthProvider())
+  .catch((e) => { $("gateErr").textContent = e.message; });
+$("signout").onclick = () => signOut(auth);
+
+// ⚠ **Keep the `user`, never the token string.** A Firebase ID token lives one hour, and
+// `getIdToken()` refreshes it when it is close to expiring — a string cached at sign-in simply
+// rots. Cache the string and the first load works while an hour later every request comes back
+// 401 "Permission denied", which reads exactly like a rules mistake and sends you editing rules
+// that were never wrong.
+/**
+ * ⚠ **A page that breaks must say it broke.** Everything here runs off promises — the fetch, the
+ * token refresh, the JSON parse — and `$("status")` is only cleared after `render()` returns, so
+ * a single rejection anywhere leaves "loading…" on screen with every table empty and the build
+ * dropdown never filled. That is indistinguishable from a slow connection, which is exactly how it
+ * was reported. Two lines, and the difference is legible.
+ */
+const oops = (m) => { $("status").innerHTML = `<b style="color:#d2452f">lỗi:</b> ${m}`; };
+addEventListener("unhandledrejection", (e) => oops(e.reason?.message ?? String(e.reason)));
+addEventListener("error", (e) => oops(e.message));
+
+let user = null;
+onAuthStateChanged(auth, (u) => {
+  user = u;
+  $("gate").hidden = !!u;
+  $("app").hidden = !u;
+  if (u) {
+    // Shown because it is what `database.rules.json` has to allow. Reading it off the screen
+    // beats digging through the Auth console.
+    $("uid").innerHTML = `signed in as ${u.email} — uid <code>${u.uid}</code>`;
+    load();
+  }
+});
+
+// ---- load ---------------------------------------------------------------------------------
+// ⚠ Only the window being viewed, never the whole node: /runs grows every day and one day it is
+// tens of megabytes. The `orderBy` query needs `.indexOn: ["at"]` in the rules — without it the
+// database rejects it outright and the only way left is pulling everything.
+let rows = [];      // finished attempts
+let starts = [];    // attempts that reached the board, finished or not
+let claims = [];    // daily-login rewards taken
+/**
+ * ⚠ Declared **here**, above the range picker rather than down with the by-day maths where it used
+ * to live. `const` is not hoisted like `var`: the picker reads the offset while the module is still
+ * evaluating, and a declaration further down the file is a ReferenceError that takes the whole page
+ * with it — a blank dashboard, not a wrong number.
+ */
+const VN = 7 * 3600e3;                        // timestamps are epoch; bucket them in VN local time
+
+/**
+ * The window to load, as `{ since, until }` in epoch ms — `until` null meaning "up to now".
+ *
+ * The presets are all "the last N days" and end at now. The custom range is the other shape: two
+ * fixed edges, which is what makes it answer "what happened during that patch" rather than "what
+ * happened recently".
+ *
+ * ⚠ **The pickers are read as VN time (+7), not as the browser's zone**, because `day()` buckets
+ * every row in VN and the by-day table is labelled that way. Read as local time on a machine set to
+ * anything else, picking 2026-08-20 00:00 → 2026-08-21 00:00 would load a window straddling two of
+ * the rows it is meant to select, and the table and the filter would disagree about what a day is.
+ * On a machine already in VN — which is every machine this has been used from — the two readings
+ * are identical, so the failure would only ever show up on someone else's screen.
+ *
+ * ⚠ **"đến" is exclusive by the hour and inclusive by the day**, and the asymmetry is deliberate:
+ * 08:00 → 14:00 plainly means six hours, while 20/8 → 20/8 just as plainly means the whole of the
+ * 20th rather than nothing at all. So the day grain adds its 24 hours and the hour grain does not.
+ */
+const stampVN = (v) => {
+  // "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm", read as a wall clock in VN.
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(v || "");
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m;
+  return Date.UTC(+y, +mo - 1, +d, +(h ?? 0), +(mi ?? 0)) - VN;
+};
+function windowWanted() {
+  const v = $("days").value;
+  if (v !== "custom") {
+    const days = Number(v);
+    return { since: days >= 9999 ? 0 : Date.now() - days * 864e5, until: null };
+  }
+  const byDay = $("grain").value === "day";
+  const from = stampVN($("from").value);
+  const to = stampVN($("to").value);
+  return {
+    since: from ?? 0,
+    until: to == null ? null : byDay ? to + 864e5 : to,
+  };
+}
+
+/** The chosen window, printed the way the by-day table labels its rows. */
+const stampLabel = (ms) => new Date(ms + VN).toISOString().slice(0, 16).replace("T", " ");
+/** "cửa sổ X → Y · " while a custom range is set, and nothing at all on a preset. */
+const askedLabel = () => {
+  if ($("days").value !== "custom") return "";
+  const w = windowWanted();
+  return `cửa sổ ${w.since ? stampLabel(w.since) : "…"} → ${
+    w.until != null ? stampLabel(w.until) : "bây giờ"
+  } (giờ VN) · `;
+};
+
+async function load() {
+  // ⚠ The whole body, because every step of it can throw and any one of them would otherwise be
+  // silent. The advice is part of the message: nearly every real failure here is the window being
+  // too wide, and the fix is one dropdown away.
+  try {
+    await loadNow();
+  } catch (e) {
+    const m = String(e?.message ?? e);
+    $("status").innerHTML =
+      `<b style="color:#d2452f">lỗi tải:</b> ${m} — thử chọn cửa sổ hẹp hơn (last 24 hours) rồi bấm reload`;
+  }
+}
+async function loadNow() {
+  if (!user) return;
+  const { since, until } = windowWanted();
+  // ⚠ Empty is not an error and must not be one: a range whose ends are the wrong way round is a
+  // half-typed range, and reloading the whole log because someone is still typing is the one
+  // outcome worth avoiding.
+  if (until != null && since && until <= since) {
+    $("status").textContent = "khoảng không hợp lệ — mốc kết thúc phải sau mốc bắt đầu";
+    return;
+  }
+  $("status").textContent = "loading…";
+  // ⚠ `endAt` needs `orderBy` as much as `startAt` does, so the query is built from whichever ends
+  // exist rather than from `since` alone — with `since` 0 and an `until` set, the old shape sent no
+  // `orderBy` at all and quietly loaded the entire log.
+  const q =
+    since || until != null
+      ? `&orderBy="at"${since ? `&startAt=${since}` : ""}${until != null ? `&endAt=${until}` : ""}`
+      : "";
+  // ⚠ **A fetch with no deadline cannot be told from a slow one**, and on a phone the difference
+  // is the whole question. Ninety seconds is generous for the widest window this page offers and
+  // still short enough that nobody sits watching a dead request.
+  const ac = new AbortController();
+  const bomb = setTimeout(() => ac.abort(), 90000);
+  const get = async (force) => {
+    const t = await user.getIdToken(force);
+    return fetch(`${DB}/runs.json?auth=${encodeURIComponent(t)}${q}`, { signal: ac.signal });
+  };
+  let res;
+  try {
+    res = await get(false);
+    // A token can still expire between the check and the request — force a refresh and retry ONCE.
+    if (res.status === 401) res = await get(true);
+  } catch (e) {
+    clearTimeout(bomb);
+    // ⚠ Named, because "AbortError" on its own sends you looking for a bug in the page.
+    throw ac.signal.aborted
+      ? new Error("quá 90 giây chưa tải xong — cửa sổ này có lẽ quá rộng cho đường mạng hiện tại")
+      : e;
+  }
+  clearTimeout(bomb);
+  if (!res.ok) {
+    $("status").innerHTML = `error ${res.status} — ${await res.text()}`;
+    return;
+  }
+  // ⚠ The parse is where a wide window actually hurts on a phone, and it is not interruptible —
+  // so the size goes up BEFORE it starts rather than after. RTDB usually answers chunked and sends
+  // no length, hence the fallback.
+  const len = Number(res.headers.get("content-length") || 0);
+  $("status").textContent = len ? `đang đọc ${(len / 1048576).toFixed(1)} MB…` : "đang đọc dữ liệu…";
+  const j = await res.json();
+  // ⚠ Two kinds of row now. A start row has no `result`, so counting them as games would double
+  // every total and halve every winrate. Rows written before start-logging existed carry no `ev`
+  // at all — those are ends, and treating a missing field as "start" would silently delete the
+  // entire history from every table.
+  // ⚠ **`Object.entries`, so the push key survives.** Firebase generates it from the *server's*
+  // clock and it sorts lexicographically in write order — the one ordering in this data that a
+  // player's device cannot get wrong. `at` is `Date.now()` on the phone, and real rows have
+  // arrived five hours early and twelve hours late from people whose clocks are simply off.
+  const all = Object.entries(j || {})
+    .map(([_k, r]) => (r && typeof r === "object" ? { ...r, _k } : r))
+    .filter((r) => r && r.at && r.lvl != null);
+  starts = all.filter((r) => r.ev === "start");
+  claims = all.filter((r) => r.ev === "daily");
+  // ⚠ End rows are **named**, not inferred. `ev !== "start"` was exactly right while the log held
+  // two kinds of row, and the day a third arrived it quietly became "anything that is not a start
+  // is a played level" — a claimed daily reward would have entered every table below as a game
+  // with no result, i.e. a loss on a level nobody played. Rows written before `ev` existed carry
+  // none at all, and those are ends.
+  rows = all.filter((r) => r.ev === "end" || r.ev === undefined);
+  /*
+   * The build list, labelled with when players were actually on each one.
+   *
+   * ⚠ **No times on this control, on purpose.** `__APP_BUILD__` is a git short hash and carries no
+   * build time, so the only stamps available were `first` and `last` seen — both read off `at`,
+   * which is `Date.now()` on the player's own device. Build `cd41090` advertised a window of
+   * *09:15 → next-day 03:20* for a commit that was ninety minutes old: one player's clock ran five
+   * hours slow and another's half a day fast. A label that wrong about time is worse than no label,
+   * because it is read as deploy history.
+   *
+   * ⚠ Built from **every** row kind, not from `rows` alone. A build whose only trace in the window
+   * is a start row or a claimed reward is still one you might want to isolate, and leaving it out
+   * makes it unfilterable rather than merely absent.
+   *
+   * ⚠ Skewed clocks are skipped here as well as in `filtered()`. Real data has carried rows dated
+   * days into the future, and one of them would own the whole label — a build would advertise a
+   * last-seen it never had, on the one control whose job is to say when it was live.
+   *
+   * ⚠ Sorted **newest first**, because the build you want is almost always the live one. Sorting
+   * by hash — which is what `.sort()` on the bare strings did — puts it anywhere in the list.
+   */
+  const cutoff = Date.now() + 36e5;
+  const seenB = new Map();
+  for (const r of all) {
+    if (!r.build || r.at > cutoff) continue;
+    const o = seenB.get(r.build) ?? { firstKey: "\uffff", lastKey: "", last: 0, n: 0 };
+    // ⚠ Ordered on the **push key**, not on `at`. The key is minted by the server in write order,
+    // so the smallest one a build ever carried is when it genuinely first appeared, whatever the
+    // phone that sent it believed the time was.
+    if (r._k) {
+      if (r._k < o.firstKey) o.firstKey = r._k;
+      if (r._k > o.lastKey) o.lastKey = r._k;
+    }
+    o.last = Math.max(o.last, r.at);
+    o.n++;
+    seenB.set(r.build, o);
+  }
+  /*
+   * ⚠ **The list is in deploy order, and the top entry is often NOT the one being served.**
+   * Several builds take rows at the same time, because a player keeps whatever version their tab
+   * loaded until they reload it — so a build uploaded at 14:21 can fall silent at 14:46 while one
+   * first seen at 09:15 is still collecting players. Sorting by first-seen answers "what did I put
+   * up, and when"; it cannot answer "what are people on now", and read as though it did it points
+   * at the wrong build. `· live` marks the ones with a row in the last quarter of an hour, which
+   * is the question the ordering leaves open.
+   */
+  // ⚠ The one number here still read off the player's clock. A device running fast keeps its
+  // build marked live long after everybody left it, so treat this as a hint and not a fact.
+  const LIVE_MS = 15 * 60e3;
+  // Newest deploy first: the build whose earliest server-written row is the latest.
+  const builds = [...seenB].sort((a, b) => (a[1].firstKey < b[1].firstKey ? 1 : a[1].firstKey > b[1].firstKey ? -1 : 0));
+  const sel = $("build"), keep = sel.value;
+  sel.innerHTML =
+    '<option value="">all builds</option>' +
+    builds
+      .map(
+        ([b, o]) =>
+          `<option value="${b}">${b} · ${o.n} rows` +
+          `${Date.now() - o.last < LIVE_MS ? " · live" : ""}</option>`,
+      )
+      .join("");
+  // ⚠ Keyed on the map, not on the label: the option text now changes with the window, and
+  // matching on it would drop the user's chosen build every time they moved the dates.
+  sel.value = seenB.has(keep) ? keep : "";
+  $("status").textContent = "";
+  render();
+}
+$("reload").onclick = load;
+
+// ---- the custom range ----------------------------------------------------------------------
+// ⚠ Switching grain **converts** what is already typed rather than clearing it. Flipping to days
+// and back is how you check a day's shape and then zoom into an hour of it, and a picker that
+// empties itself on the way makes that two pieces of retyping.
+const pad = (n) => String(n).padStart(2, "0");
+/** `Date` → the value a picker of this grain expects, in VN wall-clock. */
+const pickValue = (ms, byDay) => {
+  const d = new Date(ms + VN);
+  const day = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  return byDay ? day : `${day}T${pad(d.getUTCHours())}:00`;
+};
+function applyGrain() {
+  const byDay = $("grain").value === "day";
+  for (const id of ["from", "to"]) {
+    const el = $(id), v = el.value;
+    el.type = byDay ? "date" : "datetime-local";
+    el.step = byDay ? "" : "3600";
+    // "2026-08-20T14:00" ⇄ "2026-08-20". Going to hours keeps the day and starts it at midnight,
+    // which is the same instant the day grain already meant.
+    if (v) el.value = byDay ? v.slice(0, 10) : v.length === 10 ? `${v}T00:00` : v;
+  }
+}
+$("grain").onchange = () => { applyGrain(); load(); };
+$("applyRange").onclick = load;
+// Enter inside a picker is the same gesture as pressing áp dụng, and hunting for the button after
+// typing a date is the sort of friction that gets a filter left on a preset.
+for (const id of ["from", "to"]) {
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+}
+$("days").onchange = () => {
+  const custom = $("days").value === "custom";
+  $("pick").hidden = !custom;
+  if (custom) {
+    // Prefill with today so far, in the current grain — an empty pair of pickers loads the whole
+    // log the moment anything triggers a reload, which is the one window nobody asked for.
+    applyGrain();
+    const byDay = $("grain").value === "day";
+    const now = Date.now();
+    if (!$("from").value) $("from").value = pickValue(now - (byDay ? 6 * 864e5 : 6 * 36e5), byDay);
+    if (!$("to").value) $("to").value = pickValue(now, byDay);
+  }
+  load();
+};
+$("excl").onchange = render;
+$("build").onchange = render;
+
+// ---- maths --------------------------------------------------------------------------------
+const day = (ms) => new Date(ms + VN).toISOString().slice(0, 10);
+const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+const cls = (v, lo, hi) => (v < lo ? "bad" : v < hi ? "warn" : "good");
+
+/** Below this a rate is one or two players, and colouring it states a finding that is not there. */
+const MIN_N = 8;
+
+/**
+ * Winrate, on a five-step ramp: red under 30%, plain ink through the healthy middle, green from
+ * 90% up.
+ *
+ * ⚠ This replaced a **two-sided** scale that painted anything over 90% blue, on the argument that
+ * a level nobody ever loses is a defect with its own fix rather than a success. That argument is
+ * not wrong, but it made the column unreadable at a glance: the eye reads a colour ramp as one
+ * axis, so a second fault colour at the top end looked like a bug in the page every time. Too-easy
+ * levels are still findable — they are the ones sitting at the top of the ramp — and the sheet's
+ * own target is what actually says whether a level is where it should be.
+ *
+ * ⚠ Bands, not a continuous gradient. Adjacent levels differing by three points should read as the
+ * same colour; a per-percent gradient invents a distinction inside the ±5 noise floor.
+ *
+ * ⚠ Greyed under `MIN_N` games. Three attempts at 100% is not an easy level, it is three
+ * attempts — and a colour on it reads as a colour on a conclusion.
+ */
+const band = (v, n) => {
+  if (!n || n < MIN_N) return "thin";
+  if (v < 30) return "wr1";
+  if (v < 50) return "wr2";
+  if (v < 70) return "wr3";
+  if (v < 90) return "wr4";
+  return "wr5";
+};
+/**
+ * The middle of a series. Used for **time per player** (the by-day pair) and for **time per
+ * attempt** (the Time columns in both tables).
+ *
+ * ⚠ The mean and the median say different things and the mean alone flatters the game. Measured on
+ * the sibling project's real log, time per player came out 2:54 against 13:20 — a factor of four,
+ * because a handful of people who sit down for an hour drag the mean up. The same tail is on a
+ * single level: one player who leaves the board open while they answer the door writes an attempt
+ * of half an hour, and thirty of those are enough to double a level's mean.
+ *
+ * ⚠ A median needs the **whole series kept** — a running total only ever yields a mean. That is
+ * what `perDev` and the two `msList` arrays are for, and it is the reason those exist at all.
+ */
+const median = (a) => {
+  if (!a.length) return 0;
+  const v = [...a].sort((x, y) => x - y), m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+const mmss = (ms) => {
+  const t = Math.round(ms / 1000);
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+};
+
+// ⚠ Takes its source, so the daily-claims card obeys the same window, build filter and
+// hide-test-games box as every other number on this page. A second copy of this predicate would
+// disagree with the first the day either one was edited.
+function filtered(src = rows) {
+  const ex = $("excl").checked, b = $("build").value;
+  return src.filter((r) => {
+    if (ex && /^localhost$|^127\.|^192\.168\.|^10\./.test(r.from || "")) return false;
+    if (b && r.build !== b) return false;
+    // ⚠ A player's clock can be wrong, and real data has carried rows dated in the FUTURE. Drop
+    // them or the by-day table sprouts empty columns off the end.
+    if (r.at > Date.now() + 36e5) return false;
+    return true;
+  });
+}
+
+/** Boosters spent in a row. Absent means none — RTDB drops empty arrays, it is not missing data. */
+const usedOf = (r) => (Array.isArray(r.used) ? r.used : []);
+
+// ---- the A/B test: two arms, three boards apart ------------------------------------------------
+//
+// Arm **A is the control** — the ladder exactly as it ships. Arm **B differs at levels 3, 4 and 5
+// and nowhere else**, so a gap on any other level is either the downstream effect of those three
+// boards or it is noise. The split itself lives in `src/game/ab.ts`.
+//
+// ⚠ **Only rows that actually carry an arm.** `ab` was added in the build that opened the test, so
+// every row before it has none — and defaulting those to A would pour the whole history into the
+// control arm and make it unbeatable. They are counted and reported, never assigned.
+//
+// ⚠ **The arm is a property of the device**, not of the session. A device appearing in both arms is
+// a fault — only the `?ab=` override can do it — so it is flagged rather than merged; merging hides
+// the one thing that would invalidate the comparison.
+//
+// ⚠ **Both tables are drawn over the SAME level list**, the union of the two arms. Side by side
+// they are only readable while their rows line up, so a level absent from one arm keeps its row
+// there and prints "—". Dropping it slides every row below it against the wrong partner.
+const AB_ONLY = [3, 4, 5];
+
+/**
+ * **Which split's rows to count** — `abt` on the row, `AB_TEST` in `src/game/ab.ts`.
+ *
+ * ⚠ **The arm alone is not enough, and this was live and wrong.** This is the second A/B the game
+ * has run: the first pitted the 21/8 opening against the ladder at levels 1-10, was retired in
+ * `18b17c7`, and stamped the same `ab: "A"` / `ab: "B"`. Five builds carry it — 2a11d8d, 771b2f2,
+ * 908259e, 9e8d7c6, e5b1d69 — and grouping on the arm pooled them with this test. Because arm A
+ * there was the *long* 21/8 boards, the section reported a median game of **80s for A against 32s
+ * for B** where this test's own rows say 69s against 44s. Every second of that 48-second gap
+ * belonged to the other experiment.
+ *
+ * ⚠ **A row with an arm but no `abt` is from an older split, not from this one**, and is counted
+ * and reported rather than assumed — the same rule as a row with no arm at all. The 282 rows this
+ * test had already gathered under `b3f7623` were backfilled with `abt` so nothing was lost; there
+ * is deliberately no "or this build" fallback, because a list of build hashes is a thing somebody
+ * has to remember to extend and `abt` is not.
+ */
+const AB_TEST = "l345";
+
+/**
+ * Builds that belong to a split but were shipped **before `abt` existed**.
+ *
+ * ⚠ **Not a convenience — without it the section stops counting the live build.** `b3f7623` is the
+ * commit that wired the 3/4/5 split and it is what players are on today; it sends `ab` and no
+ * `abt`, so every row it writes from here on would be filed as "some other split" and dropped. The
+ * 282 rows it had already written were backfilled with `abt` by hand, and within an hour another
+ * 133 had arrived — which is the argument against backfilling as the answer.
+ *
+ * ⚠ **A build hash maps to a test exactly**, so this is a safe bridge rather than a guess: a build
+ * is one commit, and that commit either wired this split or it did not. What it must never become
+ * is the main mechanism — it needs a human to extend it for every release, and `abt` does not.
+ * The entry stops mattering the moment a build carrying `abt` reaches players, and can be deleted
+ * once no untagged `b3f7623` rows fall inside the window being viewed.
+ */
+const AB_LEGACY = { b3f7623: "l345" };
+
+/** Which split a row belongs to: what it says, or what its build says, or nothing. */
+const testOf = (r) => r.abt ?? AB_LEGACY[r.build] ?? null;
+
+/** Abramowitz & Stegun 7.1.26 — plenty for a p printed to three places. */
+const erf = (x) => {
+  const s = x < 0 ? -1 : 1;
+  const a = Math.abs(x), t = 1 / (1 + 0.3275911 * a);
+  return s * (1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-a * a));
+};
+/**
+ * Two-sided p for a difference of two proportions, pooled normal approximation.
+ *
+ * ⚠ It is here to stop a five-point gap over forty players being read as a result, which is the
+ * failure mode of every A/B table ever drawn. It is an approximation and it is wrong on small
+ * counts, so the caller refuses to print it under ten successes a side.
+ */
+const zP = (a, na, b, nb) => {
+  if (!na || !nb) return null;
+  const p = (a + b) / (na + nb);
+  const se = Math.sqrt(p * (1 - p) * (1 / na + 1 / nb));
+  if (!se) return null;
+  return 1 - erf(Math.abs(a / na - b / nb) / se / Math.SQRT2);
+};
+const nextD = (d) => new Date(Date.parse(d + "T00:00:00Z") + 864e5).toISOString().slice(0, 10);
+
+/**
+ * The A/B section. Takes the same filtered rows the rest of the page is drawn from, so the window,
+ * the build filter and the hide-test-games box all apply here unchanged.
+ *
+ * `tracked` is passed in rather than recomputed: winrate on this page is wins over **start rows**,
+ * and a second copy of "is this attempt accounted for" would disagree with the first the day either
+ * one moved — which would show up as a percentage rather than as a missing row.
+ */
+function renderAB(g, sg, tracked) {
+  const mk = () => ({ devs: new Set(), lv: new Map(), perDev: new Map(), deep: new Map(), days: new Map() });
+  const arms = { A: mk(), B: mk() };
+  const seenIn = new Map();
+  let noArm = 0, otherTest = 0;
+  const cellOf = (o, n) => {
+    // ⚠ `won` is everyone who cleared the board; `wonT` only those whose winning attempt has a
+    // start row in this window. The first is the count on screen, the second is the denominator's
+    // own population — see the note on Win/người below.
+    if (!o.lv.has(n)) o.lv.set(n, { devs: new Set(), ev: 0, n: 0, wt: 0, won: new Set(), wonT: new Set(), ms: [], sigs: new Set() });
+    return o.lv.get(n);
+  };
+  const claim = (r) => {
+    // ⚠ Order matters for the counters: a row from the OTHER split has a perfectly good arm, so
+    // testing the arm first would file it under "no arm" and hide what is actually happening.
+    if (r.ab === "A" || r.ab === "B") {
+      if (testOf(r) !== AB_TEST) { otherTest++; return null; }
+    }
+    const o = arms[r.ab];
+    if (!o) { noArm++; return null; }
+    o.devs.add(r.dev);
+    if (!seenIn.has(r.dev)) seenIn.set(r.dev, new Set());
+    seenIn.get(r.dev).add(r.ab);
+    o.deep.set(r.dev, Math.max(o.deep.get(r.dev) ?? 0, r.lvl));
+    return o;
+  };
+  for (const r of sg) {
+    const o = claim(r);
+    if (!o) continue;
+    const c = cellOf(o, r.lvl);
+    c.ev++;
+    c.devs.add(r.dev);
+  }
+  for (const r of g) {
+    const o = claim(r);
+    if (!o) continue;
+    const c = cellOf(o, r.lvl);
+    c.n++;
+    if (r.result === "win") { c.won.add(r.dev); if (tracked(r)) { c.wt++; c.wonT.add(r.dev); } }
+    // The board this row was actually played on — a content hash, so two arms on one board must
+    // agree and two arms on different boards must not.
+    if (r.sig) c.sigs.add(r.sig);
+    if (Number.isFinite(r.ms)) c.ms.push(r.ms);
+    o.perDev.set(r.dev, (o.perDev.get(r.dev) || 0) + (r.ms || 0));
+    if (!o.days.has(r.dev)) o.days.set(r.dev, new Set());
+    o.days.get(r.dev).add(day(r.at));
+  }
+  const A = arms.A, B = arms.B;
+  const both = [...seenIn.values()].filter((v) => v.size > 1).length;
+  /**
+   * Does the split actually look like the split?
+   *
+   * ⚠ **`leak`** — a level outside the test where the two arms played different boards. Every
+   * "downstream effect" reading assumes those boards are shared; if they are not, the section is
+   * comparing two different ladders and saying nothing about levels 3, 4 and 5.
+   *
+   * ⚠ **`same`** — a test level where both arms played the *same* board, i.e. the variant is not
+   * reaching anybody. This is the expensive failure: it does not look like a broken test, it looks
+   * like a test that found no difference.
+   *
+   * ⚠ Only levels **both** arms have rows for can be compared; one-sided levels say nothing and are
+   * skipped rather than counted as agreement.
+   */
+  const leak = [], same = [];
+  for (const n of new Set([...A.lv.keys(), ...B.lv.keys()])) {
+    const sa = A.lv.get(n)?.sigs, sb = B.lv.get(n)?.sigs;
+    if (!sa?.size || !sb?.size) continue;
+    const shared = [...sa].some((x) => sb.has(x));
+    if (AB_ONLY.includes(n)) { if (shared) same.push(n); }
+    else if (!shared) leak.push(n);
+  }
+  $("abNote").innerHTML =
+    `Nhánh <b>A</b> là bản đang chạy; nhánh <b>B</b> chỉ khác ở <b>level ${AB_ONLY.join(", ")}</b> — các dòng tô đậm.
+     Mọi level khác là <em>cùng một bàn cờ</em> ở hai nhánh, nên chênh lệch ở đó là hệ quả về sau, hoặc là nhiễu.` +
+    (noArm ? `<br>⚠ ${noArm} dòng không mang nhãn nhánh (build cũ hơn lúc mở test) — đã loại, <b>không</b> gộp vào A.` : "") +
+    (otherTest
+      ? `<br>⚠ ${otherTest} dòng <b>có nhãn nhánh nhưng thuộc đợt A/B khác</b> (đợt mở màn 21/8, level 1-10) — đã loại.
+         Gộp vào thì nhánh A của đợt đó là những bàn dài hơn hẳn và nó kéo lệch mọi con số thời gian.`
+      : "") +
+    (both ? `<br>⚠ ${both} thiết bị nằm ở cả hai nhánh; chỉ <code>?ab=</code> mới làm được thế, số liệu dưới đang trộn.` : "") +
+    (leak.length
+      ? `<br>⚠ <b>Level ${leak.join(", ")} lẽ ra phải giống nhau ở hai nhánh nhưng vân tay bàn cờ lại khác.</b>
+         Nếu đúng thế thì phần này đang so hai ladder khác nhau, không phải so ba bàn cờ 3/4/5.`
+      : "") +
+    (same.length
+      ? `<br>⚠ <b>Level ${same.join(", ")} nằm trong đợt test nhưng hai nhánh cùng một vân tay</b> — biến thể
+         không tới được người chơi. Đây là kiểu hỏng đắt nhất: nó không giống test hỏng, nó giống test
+         chạy xong và không thấy khác biệt.`
+      : "") +
+    (leak.length || same.length || !A.devs.size || !B.devs.size
+      ? ""
+      : `<br>✓ Vân tay bàn cờ khớp: level ${AB_ONLY.join(", ")} khác nhau ở hai nhánh, mọi level khác giống nhau.`);
+  if (!A.devs.size && !B.devs.size) {
+    $("abSum").innerHTML = $("tAbLv").innerHTML = "";
+    return;
+  }
+
+  // ---- the comparison strip
+  const maxDay = day(Math.max(...g.map((r) => r.at)));
+  /**
+   * D1 as a cohort: of the devices whose FIRST day in this window was d, how many played on d+1.
+   *
+   * ⚠ The newest cohort is excluded, not counted as 0 — it has not had its next day yet, and a
+   * zero there reads as a collapse in whichever arm happens to hold the freshest players.
+   * ⚠ Computed only from the loaded window, so someone who played before it counts as new here.
+   */
+  const d1Of = (o) => {
+    let n = 0, back = 0;
+    for (const ds of o.days.values()) {
+      const first = [...ds].sort()[0];
+      if (first >= maxDay) continue;
+      n++;
+      if (ds.has(nextD(first))) back++;
+    }
+    return { a: back, n };
+  };
+  const startedAt = (o, n) => o.lv.get(n)?.devs ?? new Set();
+  /** Of the devices that started `from`, how many also started `to`. A cohort, not two totals. */
+  const through = (o, from, to) => {
+    const base = startedAt(o, from), hit = startedAt(o, to);
+    let k = 0;
+    for (const d of base) if (hit.has(d)) k++;
+    return { a: k, n: base.size };
+  };
+  const totals = (o) => {
+    let ev = 0, wt = 0, n = 0;
+    for (const c of o.lv.values()) { ev += c.ev; wt += c.wt; n += c.n; }
+    return { ev, wt, n };
+  };
+  const tA = totals(A), tB = totals(B);
+  const sum = [];
+  /** A rate on both arms, with the gap in points and a p-value beside it. */
+  const pRow = (name, x, y, title) => {
+    const pa = x.n ? pct(x.a, x.n) : null, pb = y.n ? pct(y.a, y.n) : null;
+    // ⚠ Under ten successes a side the normal approximation is not worth printing, and a p-value on
+    // screen is read as a verdict whatever the counts behind it are.
+    const p = x.a >= 10 && y.a >= 10 ? zP(x.a, x.n, y.a, y.n) : null;
+    const d = pa == null || pb == null ? null : pb - pa;
+    // ⚠ Colour only where the difference clears p<0.05. Colouring every gap is exactly how a table
+    // like this talks somebody into shipping noise.
+    const k = p != null && p < 0.05 && d ? (d > 0 ? "good" : "bad") : "";
+    sum.push(`<tr><td title="${title}">${name}</td>
+      <td>${pa == null ? "—" : pa + "%"} <span class="thin">${x.a}/${x.n}</span></td>
+      <td>${pb == null ? "—" : pb + "%"} <span class="thin">${y.a}/${y.n}</span></td>
+      <td class="${k}">${d == null ? "—" : (d > 0 ? "+" : "") + d + " đ"}</td>
+      <td class="thin">${p == null ? "—" : p < 0.001 ? "&lt;0.001" : p.toFixed(3)}</td></tr>`);
+  };
+  /** A plain number on both arms. No p — these are not proportions and a test on them would lie. */
+  const nRow = (name, a, b, fmt, title) => {
+    const f = fmt || ((v) => (v == null ? "—" : v));
+    // ⚠ Rounded, because a difference of two one-decimal numbers is a float: 9.4 − 7.3 printed
+    // "+2.1000000000000005" in the first run, which reads as the page having lost its mind rather
+    // than as arithmetic. Harmless on the millisecond rows — `mmss` rounds to whole seconds anyway.
+    const d0 = a == null || b == null ? null : b - a;
+    const d = d0 == null ? null : Math.round(d0 * 10) / 10;
+    sum.push(`<tr><td title="${title || ""}">${name}</td><td>${f(a)}</td><td>${f(b)}</td>
+      <td class="thin">${d == null ? "—" : (d > 0 ? "+" : "") + f(d)}</td><td class="thin">—</td></tr>`);
+  };
+  const med = (m) => (m.size ? median([...m.values()]) : null);
+  nRow("Người chơi (thiết bị)", A.devs.size, B.devs.size, null,
+    "Chia nhánh bằng hash mã thiết bị, kỳ vọng 50/50. Lệch nhiều là hash hỏng, không phải kết quả.");
+  nRow("Ván đã chơi", tA.n, tB.n);
+  nRow("Ván / người", A.devs.size ? +(tA.n / A.devs.size).toFixed(1) : null,
+    B.devs.size ? +(tB.n / B.devs.size).toFixed(1) : null);
+  // ⚠ **Not a like-for-like comparison, and it is the row most likely to be misread.** If one arm
+  // gets people further, its players spend more of their games on the harder boards downstream, so
+  // its overall winrate falls *because the arm worked*. The three test levels themselves are on the
+  // two tables below, level by level — that is where a winrate can be compared honestly.
+  pRow("Winrate chung (/ván)", { a: tA.wt, n: tA.ev }, { a: tB.wt, n: tB.ev },
+    "Ván thắng chia cho số lượt vào màn. ⚠ Trộn mọi level: nhánh đưa người đi sâu hơn sẽ chơi nhiều " +
+      "màn khó hơn nên winrate chung tụt xuống — so từng level ở hai bảng dưới.");
+  nRow("Thời gian / người (median)", med(A.perDev), med(B.perDev), (v) => (v == null ? "—" : mmss(v)),
+    "Median chứ không phải trung bình: vài người ngồi cả tiếng kéo trung bình lên gấp mấy lần.");
+  nRow("Level sâu nhất (median)", med(A.deep), med(B.deep), null,
+    "Median của level cao nhất mỗi người chạm tới trong cửa sổ này.");
+  pRow("Vào L3 → tới L6", through(A, 3, 6), through(B, 3, 6),
+    "Trong số người đã vào level 3, bao nhiêu đi hết vùng test và sang được level 6. Đây là số đo chính của test này.");
+  pRow("Vào L3 → tới L10", through(A, 3, 10), through(B, 3, 10),
+    "Cùng cohort đó, đo sâu hơn — hiệu ứng có còn giữ đến level 10 hay không.");
+  pRow("D1 (quay lại hôm sau)", d1Of(A), d1Of(B),
+    "Cohort theo ngày đầu tiên trong cửa sổ; cohort mới nhất bị loại vì chưa có ngày kế.");
+  $("abSum").innerHTML =
+    `<thead><tr><th>Chỉ số</th><th>Nhánh A</th><th>Nhánh B</th><th>Chênh (B−A)</th><th>p</th></tr></thead>` +
+    `<tbody>${sum.join("")}</tbody>`;
+
+  // ---- level by level, the two arms PAIRED INSIDE each metric
+  //
+  // ⚠ **Paired, not two tables.** Side by side, the two winrates of one level sat fourteen columns
+  // apart and the eye had to carry a number across the seam — the thing it is worst at. This also
+  // survives a narrow window: the two-table layout had to stack below 1100px, and stacked it was
+  // not a comparison at all.
+  //
+  // ⚠ The **level list is the union of both arms**, so a level only one arm reached keeps its row
+  // and prints "—" on the other side. Dropping it would hide exactly the case worth seeing: a board
+  // the other arm's players never got to.
+  const nums = [...new Set([...A.lv.keys(), ...B.lv.keys()])].sort((x, y) => x - y);
+  /** One metric, both arms, as two `<td>`s. `g` marks the first cell of a group for the rule. */
+  const pair = (a, b, kls) =>
+    `<td class="g ${kls ? kls(a) : ""}">${a?.txt ?? "—"}</td><td class="${kls ? kls(b) : ""}">${b?.txt ?? "—"}</td>`;
+  const lvBody = nums
+    .map((n) => {
+      const hit = AB_ONLY.includes(n) ? " abhit" : "";
+      const ca = A.lv.get(n), cb = B.lv.get(n);
+      const stat = (c) => {
+        if (!c) return null;
+        const wr = c.ev ? pct(c.wt, c.ev) : null;
+        /**
+         * ⚠ **`wonT`, not `won`.** Divided by `devs` — which is built from START rows — a count
+         * of every winner can exceed the denominator: a device whose start row fell outside the
+         * window still lands in `won`. It printed **114%** on level 5 of arm B (8 over 7) the
+         * first time this ran on real rows. Same rule the main table applies to Winrate/player.
+         */
+        const wp = c.devs.size ? pct(c.wonT.size, c.devs.size) : null;
+        const mean = c.ms.length ? Math.round(c.ms.reduce((x, y) => x + y, 0) / c.ms.length / 1000) : 0;
+        return {
+          devs: { txt: c.devs.size }, ev: { txt: c.ev }, games: { txt: c.n }, done: { txt: c.won.size },
+          wr: { txt: wr == null ? "—" : wr + "%", v: wr, n: c.ev },
+          wp: { txt: wp == null ? "—" : wp + "%", v: wp, n: c.devs.size },
+          // ⚠ `n` so the cell can grey itself out, the same rule the winrate ramp uses. Without
+          // it a median of one game sat in full ink beside the other arm's and read as a finding.
+          ms: { txt: c.ms.length ? Math.round(median(c.ms) / 1000) + "s" : "—", n: c.ms.length,
+                t: c.ms.length ? `median của ${c.ms.length} ván có độ dài; trung bình ${mean}s` : "không ván nào báo độ dài" },
+        };
+      };
+      const a = stat(ca), b = stat(cb);
+      const rate = (x) => (x ? band(x.v ?? 0, x.n) : "");
+      /**
+       * B − A in points.
+       *
+       * ⚠ **Grey until both arms clear `MIN_N`, and never green or red.** A per-level gap has no
+       * p-value behind it — most levels here are a handful of attempts — and colouring it would
+       * make the noise on a thin row look exactly like the signal on a thick one. The two winrate
+       * cells beside it already carry the ramp, which is banded and greys itself out below `MIN_N`.
+       */
+      const gap = (x, y) => {
+        if (!x || !y || x.v == null || y.v == null) return `<td class="thin">—</td>`;
+        const d = y.v - x.v;
+        const solid = x.n >= MIN_N && y.n >= MIN_N;
+        return `<td class="${solid ? "" : "thin"}">${(d > 0 ? "+" : "") + d}</td>`;
+      };
+      return `<tr class="lv${hit}"><td>L${n}</td>` +
+        pair(a?.devs, b?.devs) + pair(a?.ev, b?.ev) + pair(a?.games, b?.games) +
+        pair(a?.wr, b?.wr, rate) + gap(a?.wr, b?.wr) +
+        pair(a?.done, b?.done) +
+        pair(a?.wp, b?.wp, rate) + gap(a?.wp, b?.wp) +
+        `<td class="g ${(a?.ms.n ?? 0) < MIN_N ? "thin" : ""}" title="${a?.ms.t ?? ""}">${a?.ms.txt ?? "—"}</td>` +
+        `<td class="${(b?.ms.n ?? 0) < MIN_N ? "thin" : ""}" title="${b?.ms.t ?? ""}">${b?.ms.txt ?? "—"}</td>` +
+        `</tr>`;
+    })
+    .join("");
+  // ⚠ One header ROW, not a group row over an A/B row. Two rows both stick to `top:0` and land on
+  // top of each other — the second needs the first one's exact height, which is a number that has
+  // to be maintained by hand every time the font or the padding moves.
+  // ⚠ The name goes over the A column ONLY. Printed over both, a pair of "Winrate/ván" headers
+  // made each column as wide as the word and pushed the two numbers being compared ~120px apart —
+  // undoing most of what pairing them was for. The `.g` divider is what says the lone "B" belongs
+  // to the metric on its left, so that rule and this header are one decision, not two.
+  const h2 = (name) =>
+    `<th class="g">${name}<br><span class="arm">A</span></th><th>&nbsp;<br><span class="arm">B</span></th>`;
+  $("tAbLv").innerHTML =
+    `<thead><tr><th>Level</th>` +
+    h2("User<br>start") + h2("Lượt<br>vào") + h2("Ván") + h2("Win<br>/ván") + `<th>Δ</th>` +
+    h2("User<br>xong") + h2("Win<br>/người") + `<th>Δ</th>` + h2("Thời<br>gian") +
+    `</tr></thead><tbody>${lvBody}</tbody>`;
+}
+
+function render() {
+  const g = filtered();
+  // ⚠ Start rows, through the **same** `filtered` as the ends. This used to be an inline copy of
+  // the predicate further down; two copies of a filter disagree the day either one is edited, and
+  // now that winrate divides ends by starts a disagreement would show up as a percentage rather
+  // than as a missing row.
+  const sg = filtered(starts);
+  // An attempt the log can actually account for: a start row exists for it. Winrate is measured
+  // only over these — see `winOf`.
+  const startRuns = new Set(sg.map((r) => r.run).filter(Boolean));
+  const tracked = (r) => !!r.run && startRuns.has(r.run);
+  if (!g.length) {
+    $("cards").innerHTML = "<div class='card'><div class='n'>0</div><div class='k'>no data</div></div>";
+    $("tDay").innerHTML = $("tLv").innerHTML = $("foot").innerHTML = "";
+    // ⚠ The A/B section clears with them. Left alone it keeps the PREVIOUS window on screen
+    // beside a range label saying this one is empty — two panels disagreeing about one query.
+    $("abSum").innerHTML = $("tAbLv").innerHTML = "";
+    $("abNote").textContent = "";
+    // ⚠ The range label has to be rewritten here too. Left alone it still reads the *previous*
+    // window, so a custom range that matched nothing looks like a range that loaded something —
+    // and an empty window is exactly what a picker set an hour too early produces.
+    $("range").textContent = askedLabel() + "không có dòng nào";
+    return;
+  }
+
+  const at = g.map((r) => r.at);
+  // ⚠ Two different facts, and the gap between them is information: the window that was **asked
+  // for** and the span the rows actually **cover**. A custom range with nothing in it looks
+  // identical to a broken query unless the requested window is on screen next to the answer.
+  $("range").textContent = `${askedLabel()}dữ liệu ${day(Math.min(...at))} → ${day(Math.max(...at))}`;
+
+  // ---- by day. Always by day.
+  //
+  // ⚠ This used to switch to hour buckets under a 24h window and ten-minute buckets under two
+  // hours. That is gone on request, and going back is more than restoring a ternary: the hour key
+  // has to keep **its date** (a 24h window starting at 15:00 spans two calendar dates, and an
+  // hour-only key merges yesterday 15:00 into today 15:00 and then sorts 00:00 to the top), and
+  // the D1 column has to blank itself because a cohort needs whole days. Both were live, both are
+  // easy to leave out of a re-implementation, and both fail quietly.
+  const bucket = day;
+  const first = new Map();
+  for (const r of g) if (!first.has(r.dev) || r.at < first.get(r.dev)) first.set(r.dev, r.at);
+  const byDay = new Map();
+  for (const r of g) {
+    const d = bucket(r.at);
+    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, wt: 0, starts: 0, ms: 0, msList: [], perDev: new Map() });
+    const o = byDay.get(d);
+    o.devs.add(r.dev); o.n++; if (r.result === "win") { o.w++; if (tracked(r)) o.wt++; } o.ms += r.ms || 0;
+    // ⚠ **A row with no `ms` is left out, not pushed in as 0.** The mean beside it can absorb a
+    // zero — the sum simply does not grow — but a median is a *position* in the sorted series, so
+    // every missing row shoves the middle one step toward the bottom and a level reads faster the
+    // more of its data is absent. Absent is "—", never "quick".
+    if (Number.isFinite(r.ms)) o.msList.push(r.ms);
+    // Per device, because a median needs the whole series — a running total only yields a mean.
+    o.perDev.set(r.dev, (o.perDev.get(r.dev) || 0) + (r.ms || 0));
+  }
+  // ⚠ Start rows get their own pass and can **open a bucket of their own**: an hour in which every
+  // attempt was abandoned has no end rows at all, and skipping it would drop the one bucket most
+  // worth seeing from a table whose winrate is now measured against starts.
+  for (const r of sg) {
+    const d = bucket(r.at);
+    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, wt: 0, starts: 0, ms: 0, msList: [], perDev: new Map() });
+    const o = byDay.get(d);
+    o.starts++;
+    // ⚠ **Deliberately does not touch `o.devs`.** Adding the device here crashed the page: `devs`
+    // feeds the New column through `bucket(first.get(x))`, and `first` is built from end rows only,
+    // so a device known solely from a start row resolved to `undefined` and `new Date(NaN)` threw
+    // out of `render` before anything was drawn. Beyond the crash it would also silently redefine
+    // Players, New, Returning and D1 to mean "reached a board" instead of "finished an attempt" —
+    // a bigger change than the winrate denominator asked for. A bucket opened by starts alone
+    // therefore reports 0 players, and the cells that divide by that print "—".
+  }
+  const days = [...byDay.keys()].sort();
+  const maxDev = Math.max(...days.map((d) => byDay.get(d).devs.size));
+  // "14:00" while the window sits inside one date, "08-19 14:00" once it straddles midnight.
+  const label = (d) => d;
+
+  // ---- REAL D1: of the players whose FIRST day was d, how many came back on exactly d+1 -------
+  //
+  // ⚠ Not the same thing as the "% returning" column beside it, and the difference is the whole
+  // point of adding this. "% returning" asks how many of today's players had ever played before —
+  // it counts someone who last played a fortnight ago, so it drifts upward as the game ages
+  // whatever happens to new players. D1 fixes a cohort on the day it arrived and looks at the next
+  // day only. That is the number CrazyGames reports, and the only one worth holding up against
+  // another game's.
+  const dayOf = new Map();                       // dev -> the set of days they played
+  for (const r of g) {
+    if (!dayOf.has(r.dev)) dayOf.set(r.dev, new Set());
+    dayOf.get(r.dev).add(day(r.at));
+  }
+  const nextDay = (d) => new Date(Date.parse(d + "T00:00:00Z") + 864e5).toISOString().slice(0, 10);
+  const lastDay = days[days.length - 1];
+  const d1Of = (d) => {
+    // Two ways there is no honest answer, and both must return nothing rather than a zero.
+    const cohort = [...first.entries()].filter(([, t]) => day(t) === d).map(([dev]) => dev);
+    // ⚠ The newest cohort has not had its next day yet. Printing 0% there reads as a collapse,
+    // and it is the row the eye lands on first.
+    if (!cohort.length || nextDay(d) > lastDay) return null;
+    const back = cohort.filter((x) => dayOf.get(x).has(nextDay(d))).length;
+    // ⚠ TWO DECIMALS, unlike every other percentage on this page. D1 lives in the low single
+    // digits over a cohort of a few hundred, so whole percent prints 5/247 and 6/247 as the same
+    // "2%" — two different days reading identically is worse than no column at all.
+    return { n: cohort.length, back, p: pct(back, cohort.length), p2: ((100 * back) / cohort.length).toFixed(2) };
+  };
+  // Pooled over every cohort old enough to have an answer — the headline figure.
+  const d1All = days.map(d1Of).filter(Boolean);
+  const d1n = d1All.reduce((a, x) => a + x.n, 0);
+  const d1b = d1All.reduce((a, x) => a + x.back, 0);
+
+  const dayRows = days.map((d) => {
+    const o = byDay.get(d);
+    const nw = [...o.devs].filter((x) => bucket(first.get(x)) === d).length;
+    const w = (n) => Math.round((n / maxDev) * 180);
+    const r1 = d1Of(d);
+    return `<tr><td>${label(d)}</td><td>${o.devs.size}</td><td>${nw}</td><td>${o.devs.size - nw}</td>
+      <td class="${cls(pct(o.devs.size - nw, o.devs.size), 5, 15)}">${pct(o.devs.size - nw, o.devs.size)}%</td>
+      <td title="${r1 ? `${r1.back} of the ${r1.n} players who arrived on ${d} came back on ${nextDay(d)}` : "the next day is not in the window yet"}">${r1 ? `${r1.back}/${r1.n}` : "—"}</td>
+      <td class="${r1 ? cls(r1.p, 3, 8) : ""}">${r1 ? r1.p2 + "%" : "—"}</td>
+      <td>${o.n}</td><td>${o.devs.size ? (o.n / o.devs.size).toFixed(1) : "—"}</td>
+      <td class="${band(pct(o.wt, o.starts), o.starts)}">${o.starts ? pct(o.wt, o.starts) + "%" : "—"}</td><td title="${o.msList.length ? `median of ${o.msList.length} finished attempts; mean ${Math.round(o.ms / o.n / 1000)}s` : "no attempt this day reported its length"}">${o.msList.length ? Math.round(median(o.msList) / 1000) + "s" : "—"}</td>
+      <td>${mmss(median([...o.perDev.values()]))}</td><td>${o.devs.size ? mmss(o.ms / o.devs.size) : "—"}</td>
+      <td style="text-align:left"><span class="spark" style="width:${w(nw)}px"></span><span class="spark n2" style="width:${w(o.devs.size - nw)}px"></span></td></tr>`;
+  }).reverse().join("");
+  $("tDay").innerHTML = `<thead><tr><th>Day</th><th>Players</th><th>New</th><th>Returning</th>
+    <th>%<br>returning</th><th>Back<br>D1</th><th>D1</th><th>Games</th><th>Games<br>/player</th><th>Winrate</th><th>Time/game<br>(median)</th>
+    <th>Median<br>/player</th><th>Mean<br>/player</th>
+    <th style="text-align:left">new ▏returning</th></tr></thead><tbody>${dayRows}</tbody>`;
+  // ⚠ "New" only means new *within the loaded window*: someone who played before it still counts
+  // as new, because their earlier rows were never fetched. Say so rather than let the first rows
+  // be read as a retention collapse.
+  // The heading has to follow the buckets. "By day" over rows labelled 17:20, 17:30 is the page
+  // contradicting itself, and it is the first thing read.
+  $("hDayTitle").textContent = "By day";
+  $("hDay").innerHTML =
+    "<b>D1</b> = of the players whose FIRST game was that day, the share who came back the NEXT day. "
+    + "This is the figure CrazyGames reports, so it is the one to hold up against another game. "
+    + "<b>% returning</b> answers a different question: the share of that day's players who had played "
+    + "before at all, however long ago. "
+    + "⚠ Both are computed only from the loaded window — anyone who played before it counts as new here, "
+    + "so the early rows understate returning and put strangers into the D1 cohort. To read one day's D1, "
+    + "load a window that starts several days before it. The last row's D1 is blank because its next day "
+    + "has not happened yet, and blank is the honest answer there rather than 0%. "
+    + "";
+
+  // ---- summary cards
+  const today = days[days.length - 1], t = byDay.get(today);
+  const devAll = new Set(g.map((r) => r.dev));
+  const wins = g.filter((r) => r.result === "win").length;
+  // Same definition as the tables: completed attempts over attempts begun.
+  const winsT = g.filter((r) => r.result === "win" && tracked(r)).length;
+  const cleanT = g.filter((r) => r.result === "win" && tracked(r) && !usedOf(r).length).length;
+  // ⚠ Boosted attempts come out of the **denominator too**, or "clean winrate" is clean wins over
+  // all starts and reads far worse than the game is. An abandoned attempt counts as clean: nothing
+  // in the log says a booster was spent on it, and inventing one either way would be worse.
+  const boostedT = g.filter((r) => tracked(r) && usedOf(r).length).length;
+  const cleanStarts = Math.max(0, sg.length - boostedT);
+  const revives = g.reduce((s, r) => s + usedOf(r).filter((u) => u === "revive").length, 0);
+  const boosts = g.reduce((s, r) => s + usedOf(r).length, 0);
+  const ret = [...devAll].filter((x) => new Set(g.filter((r) => r.dev === x).map((r) => day(r.at))).size > 1).length;
+  const cl = filtered(claims);
+  const dailyWho = new Set(cl.map((r) => r.dev)).size;
+  const dailyCoins = cl.reduce((a, r) => a + (r.coins || 0), 0);
+  $("cards").innerHTML = [
+    [devAll.size, "players", `${t.devs.size} on ${today}`],
+    [g.length, "games", `${(g.length / devAll.size).toFixed(1)} per player`],
+    // ⚠ The same `band` as the tables. These went out uncoloured at first and it read as the ramp
+    // being broken rather than absent — a 47% headline in the same ink as a 97% one is a stronger
+    // statement than no colour at all, because the eye has just been taught that the colour means
+    // something. Any winrate on this page is either on the ramp or it is lying about being off it.
+    [sg.length ? pct(winsT, sg.length) + "%" : "—", "winrate", `${winsT} of ${sg.length} attempts begun`,
+      band(pct(winsT, sg.length), sg.length)],
+    // ⚠ The winrate that can be compared with a bot. A level bought with a revive or a booster is
+    // not a game any bot could have played, and the whole ladder is tuned against them — same
+    // reason the offline model ranking runs with PURE=1.
+    [cleanStarts ? pct(cleanT, cleanStarts) + "%" : "—", "clean winrate",
+      `${cleanStarts} attempts, no booster, no revive`, band(pct(cleanT, cleanStarts), cleanStarts)],
+    [d1n ? ((100 * d1b) / d1n).toFixed(1) + "%" : "—", "D1 retention",
+      d1n ? `${d1b} of ${d1n} new players came back the next day` : "needs a second day of data"],
+    [pct(ret, devAll.size) + "%", "returning", `${ret} played on 2+ days`],
+    [revives, "revives", `${pct(g.filter((r) => usedOf(r).includes("revive")).length, g.length)}% of games`],
+    [boosts, "booster uses", `${pct(g.filter((r) => usedOf(r).length).length, g.length)}% of games`],
+    // ⚠ The headline is the **player** count, not the claim count. The reward is once a day, so a
+    // raw total mostly measures how long the loaded window is; what the feature is judged on is how
+    // many of the people who could take one did.
+    [dailyWho, "took daily reward", cl.length ? `${cl.length} claims, ${dailyCoins} coins paid` : "nobody has taken one yet"],
+    // ⚠ The ramp class lands on `.n`, which sets size and weight but no colour of its own — so it
+    // inherits, and a plain class is enough. A colour declared there would out-specify `.wr3` and
+    // the cards would stay black however the band was computed.
+  ].map(([n, k, d, c]) => `<div class="card"><div class="n ${c ?? ""}">${n}</div><div class="k">${k}</div><div class="d">${d}</div></div>`).join("");
+
+  // ---- by level
+  const lv = new Map();
+  for (const r of g) {
+    if (!lv.has(r.lvl)) lv.set(r.lvl, { devs:new Set(), pass:new Set(), passT:new Set(), lost:new Set(), wtByDev:new Map(), lastAt:new Map(), lastRes:new Map(), n:0, w:0, wt:0, ms:0, msList:[], taps:0, peak:0, belt:0, used:{}, sigs:new Set() });
+    const o = lv.get(r.lvl);
+    o.devs.add(r.dev); o.n++; o.ms += r.ms || 0; o.taps += r.taps || 0;
+    if (Number.isFinite(r.ms)) o.msList.push(r.ms);   // see the note by the by-day copy
+    o.peak += r.peak || 0; o.belt += r.belt || 0;
+    if (r.sig) o.sigs.add(r.sig);
+    // ⚠ Named, not inferred as "anything that is not a win". A row whose `result` is missing or
+    // some third value is not a loss, and counting it as one would put people in this column who
+    // never lost anything.
+    if (r.result === "lose") o.lost.add(r.dev);
+    // How this player's time on the board **ended**, which is what "% drop by lose" turns on.
+    //
+    // ⚠ Not `o.lost`, and the difference is the whole point: somebody who lost twice and then
+    // cleared it did not leave beaten, and counting them as a difficulty casualty is exactly the
+    // misreading the column exists to prevent.
+    // ⚠ Compared on `at` rather than trusting the order rows arrive in. They do come back sorted
+    // today — the query is `orderBy="at"` and push ids sort chronologically — but "last" silently
+    // becoming "whichever landed last in the object" is not a dependency worth taking.
+    const prevAt = o.lastAt.get(r.dev);
+    if (prevAt === undefined || r.at >= prevAt) {
+      o.lastAt.set(r.dev, r.at);
+      o.lastRes.set(r.dev, r.result);
+    }
+    if (r.result === "win") {
+      o.w++;
+      o.pass.add(r.dev);
+      // ⚠ Kept apart from `w`/`pass`. Those still drive Completed and Won & left, which are about
+      // people and must keep counting everyone; winrate divides by starts and so may only count
+      // the attempts a start row exists for.
+      if (tracked(r)) {
+        o.wt++;
+        o.passT.add(r.dev);
+        o.wtByDev.set(r.dev, (o.wtByDev.get(r.dev) || 0) + 1);
+      }
+    }
+    for (const u of usedOf(r)) o.used[u] = (o.used[u] || 0) + 1;
+  }
+  // Who reached each board, and which of those attempts never came back with a result.
+  const st = sg;
+  const ended = new Set(g.map((r) => r.run).filter(Boolean));
+  const reach = new Map();
+  for (const r of st) {
+    if (!reach.has(r.lvl)) reach.set(r.lvl, { devs: new Set(), byDev: new Map(), n: 0, quit: 0 });
+    const o = reach.get(r.lvl);
+    o.devs.add(r.dev);
+    o.byDev.set(r.dev, (o.byDev.get(r.dev) || 0) + 1);
+    o.n++;
+    // ⚠ Only a start carrying a `run` can be judged: the id is what pairs the two rows, and a
+    // start from a build before it existed has none. Counting those as quits would report a
+    // walk-away for every attempt ever played on an older build.
+    if (r.run && !ended.has(r.run)) o.quit++;
+  }
+
+  // Every device seen at a level at all — a start counts, so a player who reached the next board
+  // and quit inside it is not mistaken for one who never went.
+  //
+  // ⚠ This is **not** what `Starts (user)` counts, and the two must not be merged back together.
+  // This one answers "did this player ever appear at level N", which is the right test for
+  // Won & left: an old-build player who *finished* level N+1 plainly went there, and counting them
+  // as absent would inflate the churn column with people who did not churn.
+  const seen = new Map();
+  const mark = (l, d) => {
+    if (!seen.has(l)) seen.set(l, new Set());
+    seen.get(l).add(d);
+  };
+  for (const r of g) mark(r.lvl, r.dev);
+  for (const r of st) mark(r.lvl, r.dev);
+
+  // Devices that actually sent a start row for the level — **the people who pressed start**, which
+  // is what `Starts (user)` says on the tin and now what it counts.
+  //
+  // ⚠ It used to be the `seen` union above, so that players on builds too old to send a start row
+  // were not lost from the table. That is a defensible number and it is the wrong one: it made the
+  // column disagree with its own name and with `Starts (event)` beside it, and there was no way to
+  // tell a level where 40 people arrived from one where 26 did and 14 more were inferred.
+  // ⚠ The price, paid knowingly: **every level reads "—" for windows before 19/08**, when start
+  // logging began. A blank is the honest answer there — those players did press start, the game
+  // simply never said so — and it is the same convention `Starts (event)` already uses.
+  const startedBy = new Map();
+  for (const r of st) {
+    if (!startedBy.has(r.lvl)) startedBy.set(r.lvl, new Set());
+    startedBy.get(r.lvl).add(r.dev);
+  }
+
+  // The funnel's base: everyone seen at level 1 inside this window, from starts *and* from
+  // finished attempts — the same union `Starts (user)` is counted from, so the two columns divide
+  // against each other honestly.
+  //
+  // ⚠ **An intersection, not a ratio of two headcounts.** `seen(N).size / seen(1).size` is the
+  // obvious way to write this and it is not a funnel: the people at level 30 in a 7-day window are
+  // mostly people who cleared level 1 *before* it, so they are counted in the numerator and not in
+  // the denominator, and the column can read over 100% on a board nobody new ever reached. Counting
+  // only devices that are in **both** sets answers the question the column is named for — of the
+  // people who started at level 1 here, how many ever got this far — and cannot exceed 100%.
+  //
+  // ⚠ It is therefore **a floor, and it falls as the window gets shorter**: a player who started
+  // level 1 a fortnight ago and is on level 40 today is in neither set, so a 24-hour window shows
+  // almost nobody past the first few boards. Read it on a window long enough to contain the
+  // playthrough it is measuring, the same caution D1 retention carries.
+  const funnelBase = startedBy.get(1);
+
+  /**
+   * **Gave up** — players who started a level, never won it, and never opened the next one within
+   * ten minutes of that start. The people who stopped playing *here*, as opposed to moved on.
+   *
+   * ⚠ **Not the complement of Won & left, and not a second Quit.** Won & left is people who beat
+   * the board and never came back; Quit is an attempt with a start row and no end row, which is one
+   * abandoned *game*. This one is the player: no win on this level at all, and nothing after it.
+   *
+   * ⚠ **Ten minutes measured from that player's own two rows, so a wrong clock cancels.** `at` is
+   * `Date.now()` on the device and real rows have arrived half a day out — but both ends of this
+   * comparison come from the same device, so the skew subtracts away. It is the one column here
+   * that is immune to it.
+   *
+   * ⚠ **Starts inside the last ten minutes of the data are excluded, not counted as give-ups.**
+   * Somebody who opened level 7 four minutes before the window ends has not had their ten minutes
+   * yet; counting them would make the newest rows of every window look like a wall. The edge is the
+   * newest row loaded rather than `Date.now()`, because a window with an end date set has to be
+   * judged against the data it actually contains.
+   *
+   * ⚠ Its base is `Starts (user)`, so it reads "—" for windows before 19/08 like every other
+   * column that needs a start row.
+   */
+  const GIVEUP_MS = 10 * 60e3;
+  const lastStart = new Map();
+  for (const r of st) {
+    const k = r.dev + "|" + r.lvl;
+    const t = lastStart.get(k);
+    if (t === undefined || r.at > t) lastStart.set(k, r.at);
+  }
+  const everWon = new Set();
+  for (const r of g) if (r.result === "win") everWon.add(r.dev + "|" + r.lvl);
+  let newest = 0;
+  for (const r of st) if (r.at > newest) newest = r.at;
+  for (const r of g) if (r.at > newest) newest = r.at;
+  const guEdge = Math.min(Date.now(), newest) - GIVEUP_MS;
+  const gaveUp = new Map();
+  const guWaiting = new Map();
+  for (const [k, t] of lastStart) {
+    const cut = k.lastIndexOf("|");
+    const dev = k.slice(0, cut);
+    const n = Number(k.slice(cut + 1));
+    if (everWon.has(k)) continue;
+    if (t > guEdge) {
+      guWaiting.set(n, (guWaiting.get(n) || 0) + 1);
+      continue;
+    }
+    const nxt = lastStart.get(dev + "|" + (n + 1));
+    if (nxt !== undefined && nxt >= t && nxt <= t + GIVEUP_MS) continue;
+    if (!gaveUp.has(n)) gaveUp.set(n, new Set());
+    gaveUp.get(n).add(dev);
+  }
+
+  const nums = [...new Set([...lv.keys(), ...reach.keys()])].sort((a, b) => a - b);
+  const lvRows = nums.map((n) => {
+    const o = lv.get(n) ?? { devs:new Set(), pass:new Set(), passT:new Set(), lost:new Set(), wtByDev:new Map(), n:0, w:0, wt:0, ms:0, msList:[], taps:0, peak:0, belt:0, used:{}, sigs:new Set() };
+    const rc = reach.get(n);
+    const nx = lv.get(n + 1);
+    const drop = nx ? 100 - pct(nx.devs.size, o.devs.size) : null;
+    /**
+     * **% drop by lose** — of the players who dropped off here, the share whose last attempt on
+     * this board was a **loss**.
+     *
+     * ⚠ It splits Drop-off into the half difficulty can explain and the half it cannot. A level
+     * losing a quarter of its players reads the same in that column whether they were beaten or
+     * simply stopped playing, and those need opposite fixes: one is the board, the other is
+     * whatever is happening around it. Measured on real data the two look nothing alike — level 10
+     * dropped mostly losers, level 6 mostly winners.
+     *
+     * ⚠ **The base is the real set difference**, `devs(n) \ devs(n+1)`, not the headcount ratio
+     * the Drop-off percentage beside it is computed from. Those are not the same number: `nx.devs`
+     * can hold people who were never at level n at all, so a ratio of the two sizes is not the
+     * count of anybody in particular. The hover carries this column's own base for that reason,
+     * and the two percentages are not expected to reconcile by hand.
+     *
+     * ⚠ **Under `MIN_N` leavers it prints the raw pair — `4/6`, greyed — rather than blanking.**
+     * A percentage of six is not a rate and must not be coloured like one, but the alternative
+     * tried first was "—", and on a 12-hour window that emptied the column from level 5 down: L5
+     * had 7 leavers, L6 six, L10 six, so nearly every row went blank and the page read as *nobody
+     * ever leaves after losing*, which is the opposite of what the rows held. The denominator here
+     * is a set difference and is an order of magnitude smaller than any other column's, so the
+     * threshold that suits those is far too coarse for this one. Show the fraction, withhold the
+     * claim.
+     */
+    const gone = nx ? [...o.devs].filter((d) => !nx.devs.has(d)) : [];
+    const goneLost = gone.filter((d) => o.lastRes.get(d) === "lose").length;
+    const dbl = gone.length >= MIN_N ? pct(goneLost, gone.length) : null;
+    const dblCell = !nx || !gone.length ? "—" : dbl == null ? `${goneLost}/${gone.length}` : dbl + "%";
+    const dblClass = !nx || !gone.length ? ""
+      : dbl == null ? "thin"
+      : dbl > 60 ? "bad" : dbl > 30 ? "warn" : "";
+    const dblTitle = !nx
+      ? "no level " + (n + 1) + " in this window to be absent from"
+      : !gone.length
+        ? `everyone who played L${n} went on to L${n + 1}`
+        : `${goneLost} of the ${gone.length} who left after L${n} had just lost; ` +
+          `${gone.length - goneLost} had just won it` +
+          (dbl == null ? ` — too few to read as a percentage, so the count is shown instead` : "");
+    const gu = gaveUp.get(n)?.size ?? 0;
+    const guBase = startedBy.get(n)?.size ?? 0;
+    const guPct = guBase >= MIN_N ? pct(gu, guBase) : null;
+    const guTitle = !guBase
+      ? "no start rows for this level in this window"
+      : `${gu} of the ${guBase} who started L${n} never won it and never opened L${n + 1} within ten minutes` +
+        (guWaiting.get(n) ? ` — ${guWaiting.get(n)} more started too recently to judge and are excluded` : "") +
+        (guPct == null ? ` — under ${MIN_N} starters, so no percentage` : "");
+    const bs = Object.entries(o.used).map(([k, v]) => `${k}×${v}`).join(" ");
+    const belt = o.belt ? pct(o.peak, o.belt) : 0;
+    // ⚠ Only judged once there are enough starts. With one or two, "100%" is one person closing a
+    // tab, printed in red as though the level were driving people away.
+    const quit = rc && rc.n >= MIN_N ? pct(rc.quit, rc.n) : null;
+    // ⚠ Beat it and left anyway. Measured per device against the next level, not as a ratio of
+    // two totals like Drop-off beside it: a headcount ratio can stay flat while the actual people
+    // change, and the question here is about specific players who cleared this board and never
+    // came back. It is also the churn that difficulty cannot explain — they did not fail.
+    const nextSeen = seen.get(n + 1);
+    const wonLeft = [...o.pass].filter((d) => !nextSeen || !nextSeen.has(d)).length;
+    // The newest level in the window has no "next" to be absent from, and a player who cleared
+    // this board a minute ago has not had time to start the next one either. Both inflate it.
+    const wl = o.pass.size ? pct(wonLeft, o.pass.size) : null;
+    // Two ways to count arrivals, side by side, because they answer different questions and reading
+    // one as the other is what prompted this column existing at all.
+    //
+    // ⚠ **Starts (event)** is `rc.n`, raw start rows: one per attempt, so a player who retried five
+    // times is five. It is the denominator Quit is a percentage of — which is why the two sit
+    // together — and it is **"—" where there is no `rc`**, never 0: builds before start-logging sent
+    // no start row, and printing 0 beside a hundred finished games is a claim, not a gap.
+    //
+    // ⚠ **Starts (user)** is how many distinct people sent one of those start rows — the same
+    // events as the column beside it, counted per device instead of per attempt. So the two are
+    // now numerator and denominator of the same thing, and `event / user` is retries per player.
+    //
+    // ⚠ It is **"—" wherever `rc` is missing**, exactly like Starts (event), and for the same
+    // reason: `reach` and `startedBy` are built from the same rows, so a level with no start rows
+    // has neither. Printing 0 there would claim nobody arrived on a board with a hundred finished
+    // games behind it.
+    const started = startedBy.get(n)?.size ?? 0;
+    /**
+     * Players the board gave trouble to: **lost at least once, or retried, or started more than
+     * twice** — the union, one player counted once however many of the three they hit.
+     *
+     * ⚠ **Retries are inferred from start rows, because the log has no retry event.** `tries` is
+     * counted on the device (`save.noteTry`) and never sent, so a second start row on the same
+     * board *is* the retry. That makes the second and third clauses the same signal at two
+     * strengths — anything over two starts is already over one — and they are still both listed
+     * because the hover splits them, which is the only way to see whether a level's number is
+     * people failing or people re-entering.
+     * ⚠ The cost of inferring it: a **reload re-enters the board**, and so does coming back after
+     * an ad. Neither is a retry in any sense the player would recognise, and both land in this
+     * column. Read a level with a large gap between "lost" and "retried" in the hover with that in
+     * mind before concluding the board is hard.
+     *
+     * ⚠ **Not the complement of Completed**, and the overlap is the point: someone who failed twice
+     * and then cleared it is in both columns. A board where nearly everyone struggles once and
+     * nearly everyone finishes is a board that teaches; the same number beside half the Completed
+     * is a wall.
+     *
+     * ⚠ **Counted over the start-logged population only**, the same people `Starts (user)` counts.
+     * A player who lost on a build too old to send a start row belongs in no ratio whose
+     * denominator excludes them — counting them upstairs and not downstairs is what makes a
+     * percentage print over 100 and stop meaning anything.
+     *
+     * ⚠ **Uncoloured**, like `% of L1` and for the same reason: the ladder deliberately asks for
+     * winrates as low as 25%, so a board people lose on is a board doing its job. Banding it would
+     * paint the intended shape of the game as a fault.
+     */
+    const startSet = startedBy.get(n) ?? new Set();
+    const startsOf = (d) => rc?.byDev.get(d) ?? 0;
+    const hardFor = [...startSet].filter((d) => o.lost.has(d) || startsOf(d) >= 2);
+    const lostPct = started ? pct(hardFor.length, started) : null;
+    // The three signals, split, so the number can be read rather than trusted.
+    const bLost = hardFor.filter((d) => o.lost.has(d)).length;
+    const bRetry = hardFor.filter((d) => !o.lost.has(d) && startsOf(d) >= 2).length;
+    const bMany = hardFor.filter((d) => startsOf(d) > 2).length;
+    // ⚠ Counted by intersecting the two sets, not by subtracting two totals. `Completed` counts
+    // anyone who ever won here, including people on builds too old to send a start row — subtract
+    // that from a start count they are not in and the answer can come out negative.
+    const neverWon = [...startSet].filter((d) => !o.pass.has(d)).length;
+    const lostTitle = started
+      ? `${hardFor.length} of the ${started} who started L${n}: ${bLost} lost at least once` +
+        (bRetry ? `, ${bRetry} more only re-entered the board` : "") +
+        (bMany ? ` · ${bMany} started it more than twice` : "") +
+        `; ${neverWon} never cleared it`
+      : "no start rows for this level in this window";
+    // ⚠ **It divides the two numbers on the row**: `Starts (user)` here over `Starts (user)` at
+    // level 1. That is what the column was asked for and it is the only reading that survives
+    // being checked by hand — a column showing 15 beside 131 and printing anything other than 11%
+    // reads as arithmetic that failed, however defensible the other number is.
+    //
+    // ⚠ **So it is a ratio of two headcounts, not a cohort, and the two are different questions.**
+    // Someone on level 30 today mostly started level 1 weeks ago, so in a short window they are
+    // counted upstairs and not downstairs and the column **can exceed 100%** — flagged when it
+    // does, because that is the shape of the data rather than a level more popular than the first.
+    // The cohort figure — of the people who started level 1 *inside* this window, how many got
+    // here — is the intersection, and it rides along in the hover instead of replacing this.
+    const fHits = funnelBase ? [...(startedBy.get(n) ?? [])].filter((d) => funnelBase.has(d)).length : 0;
+    const fBase = funnelBase ? funnelBase.size : 0;
+    const fRate = fBase >= MIN_N ? pct(started, fBase) : null;
+    // Deep in the ladder the base is hundreds against a handful, so whole percent rounds a level
+    // somebody did reach to "0%". Nobody at all is "0%"; one in three hundred is "<1%".
+    const funnel =
+      !rc || fRate == null ? "—"
+      : started === 0 ? "0%"
+      : 100 * started < fBase ? "&lt;1%"
+      : fRate + "%";
+    const fTitle = !funnelBase
+      ? "no level 1 rows in this window"
+      : fBase < MIN_N
+        ? `level 1 has only ${fBase} players in this window — too few to divide by`
+        : `${started} here ÷ ${fBase} at level 1. Of those ${started}, ${fHits} also started ` +
+          `level 1 inside this window` +
+          (started > fHits ? ` and ${started - fHits} started it earlier, before the window` : "");
+    /**
+     * `winrate_c` — the same completes-over-starts, but counting **only the players who got
+     * through in the end**.
+     *
+     * ⚠ It answers a different question from Winrate/game, and the difference is the point.
+     * Winrate/game mixes two populations: people who beat the board and people who never did, and
+     * the second group contributes starts forever without ever contributing a complete, so the
+     * number sinks the longer a stuck player keeps trying. This one drops them, so what is left is
+     * roughly *how many goes it takes someone who can do it* — 50% is two attempts, 33% is three.
+     *
+     * ⚠ It can only go down, never up, as a player retries, and it is **not** a success rate: a
+     * level nobody ever fails reads 100% here and a level people beat on the third go reads 33%,
+     * even though everyone who mattered cleared both.
+     */
+    const cWins = [...o.passT].reduce((a, d) => a + (o.wtByDev.get(d) || 0), 0);
+    const cStarts = rc ? [...o.passT].reduce((a, d) => a + (rc.byDev.get(d) || 0), 0) : 0;
+    return `<tr><td>L${n}</td>
+      <td class="${band(pct(o.wt, rc ? rc.n : 0), rc ? rc.n : 0)}">${rc ? pct(o.wt, rc.n) + "%" : "—"}</td>
+      <td>${rc ? rc.n : "—"}</td><td>${rc ? started : "—"}</td>
+      <td class="${fRate != null && fRate > 100 ? "warn" : ""}" title="${fTitle}">${funnel}</td>
+      <td>${o.pass.size}</td>
+      <td title="${lostTitle}">${hardFor.length || ""}</td>
+      <td title="${lostTitle}">${lostPct == null ? "—" : lostPct + "%"}</td>
+      <td class="${quit == null ? "" : quit > 40 ? "bad" : quit > 20 ? "warn" : ""}">${quit == null ? "—" : quit + "%"}</td>
+      <td>${wonLeft || ""}</td>
+      <td class="${wl == null ? "" : wl > 50 ? "bad" : wl > 25 ? "warn" : ""}">${wl == null ? "—" : wl + "%"}</td>
+      <td title="${guTitle}">${gu || ""}</td>
+      <td class="${guPct == null ? "" : guPct > 40 ? "bad" : guPct > 20 ? "warn" : ""}" title="${guTitle}">${guPct == null ? "—" : guPct + "%"}</td>
+      <td>${o.n}</td>
+      <td class="${band(pct(o.passT.size, rc ? rc.devs.size : 0), rc ? rc.devs.size : 0)}">${rc ? pct(o.passT.size, rc.devs.size) + "%" : "—"}</td>
+      <td class="${band(pct(cWins, cStarts), cStarts)}">${cStarts ? pct(cWins, cStarts) + "%" : "—"}</td>
+      <td>${(o.n / o.devs.size).toFixed(1)}</td>
+      <td class="${drop == null ? "" : drop > 40 ? "bad" : drop > 20 ? "warn" : ""}">${drop == null ? "—" : drop + "%"}</td>
+      <td class="${dblClass}" title="${dblTitle}">${dblCell}</td>
+      <td title="${o.msList.length ? `median of ${o.msList.length} finished attempts; mean ${Math.round(o.ms / o.n / 1000)}s` : "no attempt here reported its length"}">${o.msList.length ? Math.round(median(o.msList) / 1000) + "s" : "—"}</td><td>${(o.taps / o.n).toFixed(1)}</td>
+      <td class="${belt > 90 ? "warn" : ""}">${belt}%</td>
+      <td style="text-align:left">${bs}</td>
+      <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
+  }).join("");
+  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>% of<br>L1</th><th>Completed</th><th>Lost or<br>retried</th><th>%<br>of starts</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Gave<br>up</th><th>%</th><th>Games</th>
+    <th>Winrate<br>/player</th><th>Winrate<br>_c</th><th>Games<br>/player</th><th>Drop-<br>off</th><th>% drop<br>by lose</th><th>Time<br>(median)</th><th>Taps</th><th>Peak<br>belt</th>
+    <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
+
+  // ⚠ The fingerprint column is the whole reason not to read winrate out of Google Analytics.
+  // Two fingerprints under one level number means two different boards averaged into one number.
+  // ⚠ `nums` is the union of levels with finished attempts and levels with start rows, so a level
+  // somebody entered and never finished has no `lv` entry at all and this threw — pre-existing, and
+  // it only surfaced once the page had a window containing such a level. The row loop above already
+  // guards the same lookup with `??`; this one did not.
+  const multi = nums.filter((n) => (lv.get(n)?.sigs.size ?? 0) > 1);
+  $("foot").innerHTML =
+    `The device code is a random 16-bit number, so two strangers can collide — with ${devAll.size} devices that is
+     ~${Math.round((devAll.size * (devAll.size - 1)) / 2 / 65536)} pairs counted as one, i.e. the real player count is
+     slightly higher. Someone who opens a level and walks away is counted: the game writes a row when a level is
+     entered as well as when it ends, and winrate is the second divided by the first.` +
+    (multi.length
+      ? `<br><b>Fingerprint column:</b> ${multi.length} level(s) show more than one board in this window
+         (${multi.map((n) => "L" + n).join(", ")}) — their numbers are averaging games from two different designs.
+         Filter by build to separate them.`
+      : "");
+
+  renderAB(g, sg, tracked);
+}
+</script>
+</body>
+</html>

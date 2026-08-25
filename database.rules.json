@@ -1,0 +1,72 @@
+// Realtime Database security rules. Deploy: firebase deploy --only database
+//
+// ⚠ Comments must be `//` lines like these. A `"//"` *key* inside a node is read as a child path
+// literally named "//", whose value then has to be a rules object — put an array of strings there
+// and the CLI fails with `Syntax error … Expected '{'`.
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    // WRITE: open to everyone. The game posts straight from the player's browser with one fetch
+    // and no login, so there is no credential to check — locking writes means receiving nothing.
+    //
+    // READ: one account. The database URL is visible in the game bundle (unavoidable for
+    // browser-sent telemetry), so an open read is a public download of the whole log.
+    //
+    // ⚠ **The uid is there for `public/stats.html`**, which reads /runs from a browser after a
+    // Google sign-in. A browser gets no owner privilege, so it is bound by exactly this line —
+    // unlike `scripts/pull-runs.mjs`, which goes through the Firebase CLI as project owner and
+    // never consults these rules at all.
+    //
+    // ⚠ **Never widen this to `auth != null`.** It reads as "signed-in users only" and actually
+    // means *any Google account on earth*, because anyone can make one in a minute — a public
+    // download of every game ever played, written as a rule that looks like it locks something.
+    //
+    // indexOn "at": any query using orderBy is rejected without it, and the only alternative is
+    // pulling the entire /runs node — which grows without limit.
+    "runs": {
+      ".write": true,
+      ".read": "auth != null && auth.uid === 'bTh6GMIhhYdbJauI3Fm5k9AhQk93'",
+      ".indexOn": ["at"],
+
+      // A cheap shape check. It will not stop a determined flood, but it does reject anything
+      // that is not at least the row this game sends, which is what accidental noise looks like.
+      "$row": {
+        // ⚠ `result` cannot be required any more: a start row is written when the player reaches
+        // the board and has no outcome yet. Requiring it rejected every start row silently —
+        // the write is fire-and-forget, so nothing on screen or in the console would have said so.
+        //
+        // ⚠ Same for `ev: "daily"`, a claimed login reward. **Every new event type has to be added
+        // here and the rules redeployed**, or the row is refused at the door and the game cannot
+        // tell — the fetch is never awaited and the failure reaches nobody.
+        ".validate": "newData.hasChildren(['lvl', 'at']) && (newData.hasChild('result') || newData.child('ev').val() === 'start' || newData.child('ev').val() === 'daily')"
+      }
+    },
+
+    // The moves of each finished game, moved out of /runs on 2026-08-23.
+    //
+    // ⚠ **Why it is a separate node at all.** `rep` is a few hundred to a few thousand characters
+    // and was 61% of every byte /runs weighed — 9.1 MB of 14.9 over a seven-day window. RTDB's
+    // REST API cannot return a row *without* one of its fields, so `public/stats.html`, which
+    // never reads `rep`, had to download all of it and throw it away. On a phone the dashboard
+    // stopped loading entirely. Splitting the node is the only way to make that query smaller.
+    //
+    // ⚠ **Same permissions as /runs, deliberately.** Open to write (the game posts with no login,
+    // so there is no credential to check) and readable by the one uid. A replay names a level, a
+    // device and every move somebody made; it is not less private than the row it came from.
+    //
+    // ⚠ **`ev` is `"rep"`, which is a new event type — these rules had to be redeployed for it.**
+    // A row whose shape the rules refuse is rejected at the door and the game cannot tell: the
+    // send is fire-and-forget and the failure reaches nobody. That is how a claimed daily reward
+    // went missing for a whole build, and the give-away was every row arriving after one deploy.
+    "reps": {
+      ".write": true,
+      ".read": "auth != null && auth.uid === 'bTh6GMIhhYdbJauI3Fm5k9AhQk93'",
+      ".indexOn": ["at"],
+      "$row": {
+        ".validate": "newData.hasChildren(['lvl', 'at', 'rep'])"
+      }
+    }
+  }
+}

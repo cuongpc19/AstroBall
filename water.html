@@ -159,7 +159,7 @@ const spoutX = (i) => trX(i) + TR.w / 2;
 const K = (c, r) => c + "," + r;
 
 // ── State ────────────────────────────────────────────────────────────────────
-let level, tiles, grid, cavity, cavitySet, walls, tank, cols, streams, drops, flashes, slide;
+let level, tiles, grid, cavity, cavitySet, tank, cols, streams, drops, flashes, slide;
 let phase, stalledFor, shake, msg;
 
 // ⚠ Không còn hàm ngẫu nhiên nào trong file này, và đó là chủ ý. Bàn đọc thẳng từ
@@ -184,14 +184,14 @@ function buildLevel(lv) {
   layoutGrid(bp.cols, bp.rows);
   const colorOf = (i) => NAMES[i % NAMES.length];
 
-  tiles = []; grid = new Map(); cavity = []; walls = [];
+  tiles = []; grid = new Map(); cavity = [];
 
   bp.cells.forEach((cell, i) => {
     const c = i % bp.cols, r = (i / bp.cols) | 0;
     // ⚠ `wall` KHÔNG vào khoang. Đó chính là thành máy: `cellFree` hỏi khoang, nên
     // ô tường không bao giờ là lối thoát, và `drawCavity` cũng không phủ sàn lên nó
     // — thân tủ lộ ra đúng chỗ đó. Một chỗ khai báo, cả luật lẫn hình đọc chung.
-    if (cell.kind === "wall") { walls.push([c, r]); return; }
+    if (cell.kind === "wall") return;
     cavity.push([c, r]);
     if (cell.kind === "floor") return;
     if (grid.has(K(c, r))) return;            // nửa sau của một tile nhiều ô
@@ -582,10 +582,10 @@ function drawMachine() {
  * đường ghép mà cách này xoá đi. Và phải có cầu nối, nếu không chỗ bốn ô gặp nhau
  * thủng một lỗ hình thoi cho thân tủ lọt qua.
  */
-function fillCells(list, inset, radius, style, pad = 0) {
-  const has = new Set(list.map(([c, r]) => K(c, r)));
+function fillCells(inset, radius, style, pad = 0) {
+  const has = new Set(cavity.map(([c, r]) => K(c, r)));
   ctx.beginPath();
-  for (const [c, r] of list) {
+  for (const [c, r] of cavity) {
     const x = cellX(c) - CELL / 2 - inset, y = cellY(r) - CELL / 2 - inset;
     const w = CELL + inset * 2, h = CELL + inset * 2;
     const k = Math.min(radius, w / 2, h / 2);
@@ -602,7 +602,7 @@ function fillCells(list, inset, radius, style, pad = 0) {
   // mẩu slate nhô ra ở mỗi mối nối — trông như mấy cái chấm bẩn rải đều giữa khoang.
   // Lớp trong lấy pad 4 để bịt lỗ hình thoi mà vẫn nằm gọn trong vành.
   const gap = PITCH - CELL;
-  for (const [c, r] of list) {
+  for (const [c, r] of cavity) {
     const x = cellX(c) - CELL / 2, y = cellY(r) - CELL / 2;
     const e = inset + pad;
     if (has.has(K(c + 1, r))) ctx.rect(x + CELL - 2, y - e, gap + 4, CELL + e * 2);
@@ -612,55 +612,9 @@ function fillCells(list, inset, radius, style, pad = 0) {
   ctx.fill();
 }
 
-/**
- * Một bình đã cất vào tường. Chỉ là hình — ô tường không phải tile, không có luật.
- */
-function storedJar(x, y, color) {
-  const p = PAL[color];
-  ctx.globalAlpha = 0.55;
-  fillRR(x - 7, y - 15, 14, 6, 2, p.dark);
-  fillRR(x - 11, y - 10, 22, 26, 6, "#ffffff");
-  ctx.globalAlpha = 0.45;
-  fillRR(x - 8, y - 2, 16, 15, 4, p.base);
-  ctx.globalAlpha = 0.4;
-  ctx.strokeStyle = "rgba(70,90,124,0.9)"; ctx.lineWidth = 1;
-  rr(x - 11, y - 10, 22, 26, 6); ctx.stroke();
-  ctx.globalAlpha = 1;
-}
-
-/**
- * Thành máy, vẽ như một BỨC TƯỜNG ĐÃ CHẤT ĐẦY BÌNH.
- *
- * ⚠ Đây là chỗ hình vẽ và luật nói cùng một câu. Ô tường chặn đường không phải vì
- * một quy ước tuỳ tiện — nó chặn vì đã chật. Trước đó thành máy chỉ là mảng thân tủ
- * trống, nên "vì sao bình cạnh mép không trượt ra được" là thứ phải học thuộc; giờ
- * nhìn là thấy: bên đó không còn chỗ.
- *
- * ⚠ Vẫn phải NHẠT hơn bàn cờ. Mọi thứ trên bàn đều là bình nước, nên một bình vẽ
- * đậm ở vùng tường là một bình người chơi sẽ thử bấm. Nó nói "đầy rồi" rồi im.
- *
- * Dựng bằng chính `fillCells` mà khoang dùng, chỉ khác danh sách ô: khối tường và
- * khoang vì thế luôn khít nhau, và cái vành slate của khoang tì thẳng vào mặt tường
- * thay vì trôi trên nền tủ.
- */
-function drawWalls() {
-  if (!walls.length) return;
-  fillCells(walls, 7, 19, "#b9c5dd", 0);
-  fillCells(walls, 2, 15, "#d3dcee", 4);
-  for (const [c, r] of walls) {
-    const x = cellX(c), y = cellY(r);
-    // Hốc tường, rồi cái bình trong hốc, rồi mặt kệ đỡ nó.
-    fillRR(x - 20, y - 21, 40, 38, 8, "rgba(120,140,175,0.28)");
-    storedJar(x, y - 1, NAMES[(c * 5 + r * 3) % 8]);
-    ctx.globalAlpha = 0.55;
-    fillRR(x - 21, y + 16, 42, 4, 2, "#ffffff");
-    fillRR(x - 21, y + 20, 42, 2, 1, "rgba(90,110,150,0.45)");
-    ctx.globalAlpha = 1;
-  }
-}
 function drawCavity() {
-  fillCells(cavity, 8, 21, UI.panelDeep, 0);
-  fillCells(cavity, 3, 17, UI.panel, 4);
+  fillCells(8, 21, UI.panelDeep, 0);
+  fillCells(3, 17, UI.panel, 4);
   // ⚠ **Vành phải NGẮT ở hàng đáy, không khép vòng.** Hàng đáy nằm trên miệng phễu
   // — `canEscape` cho nó thoát vô điều kiện chính vì thế — nên vẽ một đường viền
   // chắn ngang dưới nó là hình nói ngược lại luật: người chơi thấy bình bị bịt kín
@@ -1155,7 +1109,6 @@ function draw() {
   ctx.fillRect(0, 0, W, H);
 
   drawMachine();
-  drawWalls();
   drawCavity();
   drawTiles();
   drawPourStreams();

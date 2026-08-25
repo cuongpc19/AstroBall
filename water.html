@@ -1904,7 +1904,10 @@ function drawWell() {
 function drawTrough(x, y, t, open, target) {
   const p = PAL[t.color];
   const lv = t.filled / TROUGH_CAP;
-  const bw = 46, bh = TR.h;
+  // ⚠ 32 chứ không phải 46: bỏ hẳn lớp thành kem thì thân chai thu lại đúng bằng bề
+  // dày lớp đó ở hai bên (2 x 7). Phần màu và cái lõi giữ nguyên chỗ cũ — cái mất đi
+  // chỉ là dải trung tính, không phải chỗ để đọc mực nước.
+  const bw = 32, bh = TR.h;
   const bx = x + (TR.w - bw) / 2;
   const bump = t.bump || 0;
 
@@ -1937,22 +1940,21 @@ function drawTrough(x, y, t, open, target) {
   }
 
   // Nắp vặn trên cổ — thứ mang màu ngay cả khi chai rỗng.
-  fillRR(bx + bw / 2 - 9, y - 9, 18, 11, 3.5, p.dark);
-  fillRR(bx + bw / 2 - 9, y - 9, 18, 7, 3, p.base);
-  fillRR(bx + bw / 2 - 6, y - 8, 8, 2.5, 1.2, "rgba(255,255,255,0.75)");
+  fillRR(bx + bw / 2 - 7, y - 9, 14, 11, 3.5, shade(p.dark, 0.8));
+  fillRR(bx + bw / 2 - 7, y - 9, 14, 7, 3, p.base);
+  fillRR(bx + bw / 2 - 5, y - 8, 6, 2.5, 1.2, "rgba(255,255,255,0.75)");
 
-  // ⚠ Thành chai TRUNG TÍNH. Nó vẫn có bề dày thật — tô cả thân rồi khoét lòng — nhưng
-  // vành đó là nâu nhạt cho mọi chai. Màu để dành cho nắp, lớp lót và khối nước; tô
-  // màu cả thành nữa thì chai rỗng và chai đầy trông gần như nhau.
+  // ⚠ Không còn lớp thành trung tính. Thân chai giờ CHÍNH LÀ khối màu, viền là một
+  // nét đậm hơn của cùng màu đó.
+  //
+  // Đánh đổi vẫn nguyên như lúc thêm cái thành vào: rỗng và đầy bây giờ khác nhau ít
+  // hơn, vì cả cái chai đã mang màu sẵn. Thứ còn gánh việc phân biệt là cái LÕI — nó
+  // nhạt khi rỗng và đặc màu khi đầy, nên đừng tô màu nốt cái lõi.
+  const ins = 0, lin = 9;
   bottlePath(bx, y, bw, bh);
-  ctx.fillStyle = "#f6ecd8"; ctx.fill();
-  ctx.strokeStyle = "#c2a071"; ctx.lineWidth = 2.5;
-  ctx.stroke();
-
-  // Lót màu chạy sát mặt trong thành, ăn vào tới gần lõi.
-  const ins = 7, lin = 9;
-  bottlePath(bx + ins, y + ins, bw - ins * 2, bh - ins * 2);
   ctx.fillStyle = p.base; ctx.fill();
+  ctx.strokeStyle = shade(p.dark, 0.8); ctx.lineWidth = 2.5;
+  ctx.stroke();
   const iw = bw - (ins + lin) * 2, ih = bh - (ins + lin) * 2;
   bottlePath(bx + ins + lin, y + ins + lin, iw, ih);
   ctx.fillStyle = "#fdf7ea"; ctx.fill();

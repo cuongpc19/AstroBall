@@ -481,6 +481,7 @@ function drain() {
     drops.push({ x: spoutX(i), y: MANI.y + MANI.h + 12, color: t.color, t: 0 });
     pipe.on = 1; pipe.color = t.color;
     t.filled++;
+    t.bump = 1;
     sndDrip(t.filled / TROUGH_CAP);
     // ⚠ Đóng máng NGAY trong lượt rút, không hẹn giờ. Bản đầu shift qua setTimeout
     // 260ms trong khi nhịp rút là 110 — hai đơn vị nữa kịp rót vào máng đã đầy, nước
@@ -646,6 +647,7 @@ function step(now, dt) {
   for (const t of tiles) if (t.pop > 0) t.pop = Math.max(0, t.pop - dt / POP_MS);
   for (const t of tiles) if (t.tap > 0) t.tap = Math.max(0, t.tap - dt / 140);
   for (const t of tiles) if (t.nope > 0) t.nope = Math.max(0, t.nope - dt / 300);
+  for (const c of cols) for (const b of c) if (b.bump > 0) b.bump = Math.max(0, b.bump - dt / 220);
 }
 
 
@@ -1106,7 +1108,7 @@ function drawCavity() {
   }
 }
 
-function drawPot(p, locked, hidden, pop, tap, nope) {
+function drawPot(p, locked, hidden, pop, tap, nope, sel) {
   const bw = 46, bh = 54;
   // Vẽ tại vị trí `step` vừa tính — trong lúc bay, chai không còn ở ô của nó.
   const y = p.py ?? cellY(p.cell[1]);
@@ -1127,11 +1129,27 @@ function drawPot(p, locked, hidden, pop, tap, nope) {
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
-  // Bóng đổ mềm dưới đáy chai — thứ đặt nó ĐỨNG TRÊN sàn khoang thay vì trôi trên đó.
-  ctx.globalAlpha = 0.16;
+  // ⚠ **SELECTED**: chai vừa được chạm mang một quầng sáng và bóng đổ NỞ RA. Bóng to
+  // dần là thứ nói "đang nhấc lên khỏi kệ" — không có nó thì chai chỉ trôi ngang, và
+  // cú chạm không có khoảnh khắc nào của riêng nó trước khi cả cái chai bay đi.
+  const s0 = sel || 0;
+  ctx.globalAlpha = 0.16 + s0 * 0.12;
   ctx.fillStyle = "#7a5a30";
-  ctx.beginPath(); ctx.ellipse(x + 1, y + bh / 2 - 1, bw * 0.36, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x + 1, y + bh / 2 - 1 + s0 * 6, bw * (0.36 + s0 * 0.16), 5 + s0 * 2, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.globalAlpha = 1;
+  if (s0 > 0 && !hidden) {
+    ctx.save();
+    ctx.globalAlpha = s0 * 0.6;
+    ctx.strokeStyle = PAL[p.color].light;
+    ctx.lineWidth = 6;
+    bottlePath(x - bw / 2 - 4, y - bh / 2 - 4, bw + 8, bh + 8); ctx.stroke();
+    ctx.globalAlpha = s0 * 0.3;
+    ctx.lineWidth = 12;
+    bottlePath(x - bw / 2 - 7, y - bh / 2 - 7, bw + 14, bh + 14); ctx.stroke();
+    ctx.restore();
+  }
 
   const j = jitter(p.cell[0], p.cell[1]);
   ctx.save();
@@ -1421,7 +1439,8 @@ function drawTiles() {
     const locked = !liftable(t) && !t.pouring && !t.hidden;
     drawQueue(t);
     if (t.kind === "pair") drawClip(t);
-    for (const p of t.pots) drawPot(p, locked, t.hidden, t.pop || 0, t.tap || 0, t.nope || 0);
+    const sel = t.pouring && (t.fly ?? 0) < 1 ? 1 - (t.fly ?? 0) : 0;
+    for (const p of t.pots) drawPot(p, locked, t.hidden, t.pop || 0, t.tap || 0, t.nope || 0, sel);
   }
 }
 
@@ -1882,38 +1901,55 @@ function drawWell() {
  * thân biến mất và chỉ còn một mảng màu — mất luôn dấu hiệu "đây là một cái bình có
  * sức chứa", tức mất chỗ để đọc "còn trống bao nhiêu".
  */
-function drawTrough(x, y, t, open) {
+function drawTrough(x, y, t, open, target) {
   const p = PAL[t.color];
   const lv = t.filled / TROUGH_CAP;
   const bw = 46, bh = TR.h;
   const bx = x + (TR.w - bw) / 2;
+  const bump = t.bump || 0;
 
   ctx.globalAlpha = open ? 1 : 0.72;
 
-  // Nắp vặn trên cổ — thứ mang màu ngay cả khi chai rỗng. Một vệt bóng trên mặt nắp:
-  // nó là chi tiết duy nhất nói cái nắp làm bằng nhựa bóng chứ không phải một mảng màu.
+  // ⚠ **Đích hợp lệ sáng lên.** Vòng sáng đập theo nhịp quanh chai sẽ nhận chỗ nước
+  // đang tới. Nó trả lời câu người chơi phải tự dò trước đây: rót cái xanh này thì
+  // chảy về đâu.
+  if (target) {
+    const puls = 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 260));
+    ctx.save();
+    ctx.globalAlpha = puls * 0.75;
+    ctx.strokeStyle = p.light;
+    ctx.lineWidth = 5;
+    bottlePath(bx - 4, y - 4, bw + 8, bh + 8); ctx.stroke();
+    ctx.globalAlpha = puls * 0.35;
+    ctx.lineWidth = 10;
+    bottlePath(bx - 6, y - 6, bw + 12, bh + 12); ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  // SUCCESS: nhận một đơn vị thì nảy một nhịp — dẹt xuống rồi bật lại, giữ đáy đứng
+  // yên. Phóng đều cả hai chiều đọc thành cái chai to ra, không thành cú va chạm.
+  if (bump > 0) {
+    const k = Math.sin(bump * Math.PI) * 0.1;
+    ctx.translate(bx + bw / 2, y + bh);
+    ctx.scale(1 + k, 1 - k);
+    ctx.translate(-(bx + bw / 2), -(y + bh));
+  }
+
+  // Nắp vặn trên cổ — thứ mang màu ngay cả khi chai rỗng.
   fillRR(bx + bw / 2 - 9, y - 9, 18, 11, 3.5, p.dark);
   fillRR(bx + bw / 2 - 9, y - 9, 18, 7, 3, p.base);
   fillRR(bx + bw / 2 - 6, y - 8, 8, 2.5, 1.2, "rgba(255,255,255,0.75)");
 
-  // ⚠ **Thành chai TRUNG TÍNH, không mang màu.** Nó vẫn có bề dày thật — tô cả thân
-  // rồi khoét lòng, còn lại một vành chừng 7px — nhưng vành đó là nâu nhạt cho mọi
-  // chai. Màu để dành cho hai chỗ: cái nắp và khối nước bên trong. Tô màu cả thành
-  // nữa thì chai rỗng và chai đầy trông gần như nhau, mà phân biệt hai cái đó là
-  // toàn bộ việc phải đọc ở khu này.
+  // ⚠ Thành chai TRUNG TÍNH. Nó vẫn có bề dày thật — tô cả thân rồi khoét lòng — nhưng
+  // vành đó là nâu nhạt cho mọi chai. Màu để dành cho nắp, lớp lót và khối nước; tô
+  // màu cả thành nữa thì chai rỗng và chai đầy trông gần như nhau.
   bottlePath(bx, y, bw, bh);
   ctx.fillStyle = "#f6ecd8"; ctx.fill();
   ctx.strokeStyle = "#c2a071"; ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // ⚠ Một đường lót MÀU chạy sát mặt trong thành, dày chừng 4px. Thành thì trung
-  // tính cho mọi chai, nên nếu không có cái lót này thì một chai rỗng chỉ còn cái nắp
-  // để nói màu — mà cái nắp bé và nằm tách hẳn trên cùng. Lót vào trong thì màu bám
-  // theo đúng hình cái chai, đọc được ngay cả khi chưa có giọt nước nào.
-  // ⚠ `lin` = 9: màu ăn từ mặt trong thành vào TỚI GẦN LÕI, chỉ chừa một lõi nhạt
-  // hẹp ở giữa. Ở 4px nó chỉ là một cái viền nữa; dày lên thì cả cái chai mang màu
-  // của nó, còn cái lõi nhạt là chỗ mực nước chạy — đọc mức nước trên một dải hẹp
-  // vẫn dễ hơn đọc nó trên một mảng rộng cùng tông với xung quanh.
+  // Lót màu chạy sát mặt trong thành, ăn vào tới gần lõi.
   const ins = 7, lin = 9;
   bottlePath(bx + ins, y + ins, bw - ins * 2, bh - ins * 2);
   ctx.fillStyle = p.base; ctx.fill();
@@ -1930,11 +1966,18 @@ function drawTrough(x, y, t, open) {
     bubbles(bx + ins + lin, iw, top, y + bh - ins - lin, 4, x * 0.07, 2100);
     ctx.restore();
   }
-
+  ctx.restore();
   ctx.globalAlpha = 1;
 }
 
 function drawTroughs() {
+  // ⚠ Màu đang trên đường tới. "Đích hợp lệ" của một cú rót không phải một ô để thả —
+  // mà là những chai dưới CÙNG MÀU sẽ nhận chỗ nước đó. Trước đây người chơi phải tự
+  // dò xem rót xanh thì chảy về đâu; giờ chúng tự sáng lên ngay lúc chai bắt đầu
+  // nghiêng. Đây là thông tin thật, không phải hiệu ứng.
+  const incoming = new Set();
+  for (const t of tiles) if (t.pots && t.pouring) for (const p of t.pots) incoming.add(p.color);
+  for (const L of tank.layers) incoming.add(L.color);
   // ⚠ Xén ở `TR_CUT`, và cái xén này làm HAI việc. Một: hàng thứ tư chỉ còn cái nắp
   // ló ra, nói "còn nữa" mà không tốn một hàng. Hai: lúc một bình vỡ, cả cột được vẽ
   // thấp hơn đích một ngăn rồi trượt lên, nên cái sâu nhất thò xuống dưới sàn giếng
@@ -1949,7 +1992,8 @@ function drawTroughs() {
     const yOff = ease * (TR.h + TR.vgap);
     for (let k = 0; k < shown; k++) {
       ctx.globalAlpha = k === 0 ? 1 : 0.92;
-      drawTrough(trX(i), TR.y0 + k * (TR.h + TR.vgap) + yOff, cols[i][k], k === 0);
+      drawTrough(trX(i), TR.y0 + k * (TR.h + TR.vgap) + yOff, cols[i][k], k === 0,
+        k === 0 && incoming.has(cols[i][k].color));
       ctx.globalAlpha = 1;
     }
   }

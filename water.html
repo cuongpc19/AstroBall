@@ -48,7 +48,7 @@
 // Toàn bộ file độc lập: không import gì, mở thẳng bằng browser cũng chạy.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const W = 540, H = 872;
+const W = 540, H = 940;
 
 // Bảng màu và tông máy lấy nguyên từ src/game/config.ts.
 const PAL = {
@@ -93,7 +93,7 @@ const TANK_CAP = 30;
 // chưa tới một phần ba bình, nên cảnh báo đến ĐÚNG lúc còn kịp không rót thêm.
 const WARN_AT = 27;
 const COLS = 4;            // BOX_COLS của game cũ
-const TR_VISIBLE = 4;      // vẽ bấy nhiêu hàng box, còn lại đếm bằng badge (BOX_VISIBLE)
+const TR_VISIBLE = 4;      // vẽ 4, nhưng `TR_CUT` xén hàng thứ tư còn mỗi cái nắp
 const HATCH_LOAD = 3;      // số bình sau cánh cửa mỗi hatch
 const LID_LOAD = 4;        // số bình dưới mỗi tấm socola — game cũ cũng là 4
 
@@ -136,7 +136,6 @@ const HM = {"1":{"cols":4,"rows":5,"cells":[{"kind":"wall"},{"kind":"wall"},{"ki
 const LEVEL_MAX = Object.keys(HM).length;
 
 // ── Layout ───────────────────────────────────────────────────────────────────
-const MACH = { x: 14, y: 74, w: 512, h: 780 };
 // Lưới lấy kích thước TỪ blueprint mỗi level — bàn của game cũ có bàn 4x5, bàn 6x6.
 // Canh giữa theo bề ngang, ghim mép dưới cho hàng đáy luôn nằm ngay trên bồn.
 const CELL = 56, PITCH = 62;
@@ -151,9 +150,22 @@ function layoutGrid(cols, rows) {
 // "còn bao nhiêu chỗ", cả hai đọc bằng bề dày dải màu. Chiều cao dôi ra chuyển hết
 // lên cho lưới bình, vì đó mới là chỗ ra quyết định.
 const TANK = { x: 34, y: 478, w: 472, h: 106 };
-// Chỉ còn bốn hàng box, nên mỗi hàng cao hẳn lên (32 -> 44): cùng ngần ấy chỗ,
-// nhưng mực nước trong máng và con số n/3 đều to ra và đọc được từ xa hơn.
-const TR = { x0: 42, y0: 626, w: 106, gap: 8, h: 40, vgap: 14 };
+// Chai kéo dài ra: 62px thân, hàng cách nhau 74. Cao hơn thì khối nước dài hơn, và
+// ba nấc 1/3–2/3–đầy tách nhau rõ hơn hẳn so với lúc thân chỉ 40px.
+const TR = { x0: 42, y0: 626, w: 106, gap: 8, h: 62, vgap: 12 };
+
+// ⚠ Chỗ xén khu box: ba hàng ĐẦY ĐỦ, hàng thứ tư chỉ ló cái nắp.
+//
+// Vẽ trọn hàng thứ tư thì cột đọc thành "còn đúng bốn cái"; một cái nắp ló ra thì nó
+// nói "còn nữa" mà không tốn một hàng và không bắt ai đọc badge. Cộng 4 chứ không
+// phải 0: nắp cao 12px và nằm ở `y - 10`, nên cắt ở `y + 4` để lại đúng cái nắp cộng
+// vài pixel vai. Đây thuần tuý là chỗ CẮT — `cols` vẫn giữ đủ số bình của cột.
+const TR_CUT = TR.y0 + 3 * (TR.h + TR.vgap) + 4;
+
+// ⚠ Đáy tủ TÍNH TỪ chỗ xén, không viết cứng. Lúc nó là một con số rời, mỗi lần đổi
+// chiều cao chai lại để hở một mảng tủ trắng dài phía dưới giếng — trông như bàn cờ
+// bị tụt lên trên. Buộc vào nhau thì không lệch lại được.
+const MACH = { x: 14, y: 74, w: 512, h: TR_CUT + 40 - 74 };
 
 const cellX = (c) => GRID_X0 + c * PITCH + CELL / 2;
 const cellY = (r) => GRID_Y0 + r * PITCH + CELL / 2;
@@ -318,6 +330,7 @@ function tapTile(t) {
   // đầu — đúng khoảng thời gian ngón tay còn che mất cái bình — một cú chạm hợp lệ
   // và một cú chạm vào bình bị khoá phản hồi giống hệt nhau: không gì cả.
   t.tap = 1;
+  sndPour((POUR_LEAD + JAR_UNITS * POUR_MS) / 1000);
   t.pouring = true; t.pourT = 0;
   for (const p of t.pots) p.poured = 0;
 }
@@ -417,6 +430,7 @@ function drain() {
     takeUnit(li);
     drops.push({ x: spoutX(i), y: TANK.y + TANK.h, color: t.color, t: 0 });
     t.filled++;
+    sndDrip(t.filled / TROUGH_CAP);
     // ⚠ Đóng máng NGAY trong lượt rút, không hẹn giờ. Bản đầu shift qua setTimeout
     // 260ms trong khi nhịp rút là 110 — hai đơn vị nữa kịp rót vào máng đã đầy, nước
     // đó rời bồn mà không mở thêm máng nào, và tổng nước một màu tụt xuống dưới tổng
@@ -508,6 +522,132 @@ function step(now, dt) {
   for (const t of tiles) if (t.tap > 0) t.tap = Math.max(0, t.tap - dt / 260);
 }
 
+
+// ── Âm thanh ─────────────────────────────────────────────────────────────────
+//
+// Tự tổng hợp bằng WebAudio, không nạp file nào — file này phải mở thẳng bằng
+// browser là chạy được.
+//
+// ⚠ AudioContext bị chặn cho tới khi có tương tác thật, nên nó chỉ được tạo ở cú
+// chạm đầu tiên. Tạo lúc tải trang thì nó nằm ở trạng thái "suspended" và nuốt im
+// mọi tiếng động mà không báo gì.
+let AC = null;
+function audio() {
+  if (AC) return AC;
+  const C = window.AudioContext || window.webkitAudioContext;
+  if (!C) return null;
+  AC = new C();
+  return AC;
+}
+
+/** Nhiễu nâu — phổ nghiêng về trầm. Nhiễu trắng nghe ra tiếng xì hơi, không ra nước. */
+function noiseBuf(dur) {
+  const n = Math.max(1, Math.floor(AC.sampleRate * dur));
+  const buf = AC.createBuffer(1, n, AC.sampleRate);
+  const d = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < n; i++) {
+    last = (last + (Math.random() * 2 - 1) * 0.09) * 0.985;
+    d[i] = last * 3.2;
+  }
+  return buf;
+}
+
+/**
+ * Một cái "bụp" — bọt nước vỡ.
+ *
+ * ⚠ **Cao độ đi LÊN, không đi xuống.** Đây là chỗ bản trước sai và là lý do nó
+ * không ra tiếng nước: tôi cho sin trượt từ cao xuống thấp, mà cái đó tai nghe ra
+ * "boop" của đồ chơi. Tiếng giọt nước thật là bọt khí đang co lại, tần số cộng
+ * hưởng vì thế TĂNG rất nhanh trong khoảng 50ms. Đảo chiều cái ramp là gần như toàn
+ * bộ khác biệt giữa "giọt nước" và "nốt nhạc".
+ */
+function blip(f, gain, t0) {
+  const o = AC.createOscillator();
+  const g = AC.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(f, t0);
+  o.frequency.exponentialRampToValueAtTime(f * 2.4, t0 + 0.055);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.13);
+  o.connect(g).connect(AC.destination);
+  o.start(t0);
+  o.stop(t0 + 0.15);
+}
+
+/**
+ * Tiếng rót: một dòng nhiễu LIÊN TỤC dài bằng đúng cú rót, cộng bọt vỡ rải rác.
+ *
+ * ⚠ Bản trước là một đợt nhiễu 0,5 giây rồi thôi — mà cú rót kéo 1,6 giây, nên phần
+ * lớn thời gian nước chảy trên hình thì loa im. Một dòng nước là âm thanh LIÊN TỤC;
+ * cắt ngắn nó thì còn lại tiếng "xoẹt".
+ *
+ * ⚠ Bộ lọc phải rung. Bandpass đứng yên cho ra tiếng ồn trắng có màu; cho tần số
+ * trung tâm dao động chậm quanh 900Hz thì mới thành tiếng dòng nước đang xoáy.
+ */
+function sndPour(dur) {
+  const ac = audio();
+  if (!ac) return;
+  const t0 = ac.currentTime;
+  const d = dur || 1.6;
+  const src = ac.createBufferSource();
+  src.buffer = noiseBuf(d + 0.2);
+
+  const bp = ac.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = 900;
+  bp.Q.value = 1.4;
+  const lfo = ac.createOscillator();
+  const lfoGain = ac.createGain();
+  lfo.frequency.value = 5.5;
+  lfoGain.gain.value = 320;
+  lfo.connect(lfoGain).connect(bp.frequency);
+
+  const hp = ac.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 320;
+
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.075, t0 + 0.09);
+  g.gain.setValueAtTime(0.075, t0 + d - 0.25);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+
+  src.connect(bp).connect(hp).connect(g).connect(ac.destination);
+  lfo.start(t0); lfo.stop(t0 + d);
+  src.start(t0); src.stop(t0 + d);
+
+  // Bọt vỡ rải rác suốt cú rót — thứ tách "dòng nước" khỏi "tiếng ồn có màu".
+  for (let t = 0.12; t < d - 0.15; t += 0.09 + Math.random() * 0.12) {
+    blip(360 + Math.random() * 420, 0.022 + Math.random() * 0.02, t0 + t);
+  }
+}
+
+/**
+ * Một đơn vị nước rơi vào bình: cú va chạm ngắn cộng một cái bụp.
+ *
+ * ⚠ Cao độ đi theo `k` (bình đã đầy tới đâu). Bình càng đầy, khoảng không phía trên
+ * càng ngắn, cao độ càng lên — đúng như rót vào chai thật, và nó là thông tin: nghe
+ * là biết bình sắp đầy mà không cần rời mắt khỏi chỗ khác.
+ */
+function sndDrip(k) {
+  const ac = audio();
+  if (!ac) return;
+  const t0 = ac.currentTime;
+  const src = ac.createBufferSource();
+  src.buffer = noiseBuf(0.05);
+  const bp = ac.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = 2200 + k * 900;
+  bp.Q.value = 2.5;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.045, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
+  src.connect(bp).connect(g).connect(ac.destination);
+  src.start(t0); src.stop(t0 + 0.06);
+  blip(430 + k * 420, 0.1, t0 + 0.005);
+}
 // ── Draw ─────────────────────────────────────────────────────────────────────
 const cv = document.getElementById("c");
 const ctx = cv.getContext("2d");
@@ -1159,8 +1299,10 @@ function drawOverflow() {
   ctx.globalAlpha = 1;
 }
 function drawWell() {
-  const top = TR.y0 - 12;
-  const hgt = MACH.y + MACH.h - top - 10;
+  const top = TR.y0 - 14;
+  // Giếng kết thúc ngay dưới chỗ cắt cộng chỗ cho badge, chứ không chạy tới đáy tủ —
+  // để một khoảng trắng dài bên dưới hàng bị xén thì cái xén đọc thành lỗi vẽ.
+  const hgt = TR_CUT + 30 - top;
   fillRR(MACH.x + 3, top - 7, MACH.w - 6, hgt + 7, 32, UI.panelDeep);
   fillRR(MACH.x + 10, top, MACH.w - 20, hgt, 26, UI.panel);
   for (let i = 0; i < COLS; i++)
@@ -1247,36 +1389,42 @@ function drawTrough(x, y, t, open) {
 }
 
 function drawTroughs() {
+  // ⚠ Xén ở `TR_CUT`, và cái xén này làm HAI việc. Một: hàng thứ tư chỉ còn cái nắp
+  // ló ra, nói "còn nữa" mà không tốn một hàng. Hai: lúc một bình vỡ, cả cột được vẽ
+  // thấp hơn đích một ngăn rồi trượt lên, nên cái sâu nhất thò xuống dưới sàn giếng
+  // trong đúng khoảng thời gian đó — game cũ vấp y hệt và có ghi chú ở
+  // `buildBeltHousing`.
+  ctx.save();
+  rr(MACH.x + 10, TR.y0 - 26, MACH.w - 20, TR_CUT - TR.y0 + 26, 26);
+  ctx.clip();
   for (let i = 0; i < COLS; i++) {
     const shown = Math.min(TR_VISIBLE, cols[i].length);
-    const hidden = cols[i].length - shown;
     const ease = slide[i] * slide[i] * (3 - 2 * slide[i]);
     const yOff = ease * (TR.h + TR.vgap);
-    if (hidden > 0) {
-      // ⚠ "+11" bị đọc thành text debug, và đúng là nó trông y hệt. Nó là SỐ BÌNH CÒN
-      // LẠI trong cột, nên vẽ một cái bình con cạnh con số thì câu hỏi "còn gì" tự
-      // trả lời, không cần biết quy ước.
-      const bxc = trX(i) + TR.w / 2 - 12;
-      const byc = TR.y0 + shown * (TR.h + TR.vgap) + 4;
-      ctx.globalAlpha = 0.75;
-      fillRR(bxc - 4, byc - 4, 8, 3, 1.5, "#6b7ea6");
-      fillRR(bxc - 6, byc, 12, 14, 3, "#eaeff9");
-      ctx.strokeStyle = "#6b7ea6"; ctx.lineWidth = 1.2;
-      rr(bxc - 6, byc, 12, 14, 3); ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = "rgba(70,90,130,0.95)";
-      ctx.font = "700 14px system-ui, sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText(String(hidden), bxc + 10, byc + 12);
-    }
     for (let k = 0; k < shown; k++) {
-      // ⚠ Máng chưa tới lượt chỉ mờ RẤT ít. Alpha thấp không chỉ làm nhạt cái thân —
-      // nó làm lòng máng trắng ngả sang màu thân ở phía sau, nên cái lòng trắng vừa
-      // thêm vào lại nhuốm màu ở đúng ba phần tư số máng đang hiển thị.
       ctx.globalAlpha = k === 0 ? 1 : 0.92;
       drawTrough(trX(i), TR.y0 + k * (TR.h + TR.vgap) + yOff, cols[i][k], k === 0);
       ctx.globalAlpha = 1;
     }
+  }
+  ctx.restore();
+
+  // Badge nằm NGOÀI vùng xén, dưới hàng bị cắt: số bình còn lại của cột.
+  for (let i = 0; i < COLS; i++) {
+    const hidden = cols[i].length - Math.min(TR_VISIBLE, cols[i].length);
+    if (hidden <= 0) continue;
+    const bxc = trX(i) + TR.w / 2 - 12;
+    const byc = TR_CUT + 8;
+    ctx.globalAlpha = 0.75;
+    fillRR(bxc - 4, byc - 4, 8, 3, 1.5, "#6b7ea6");
+    fillRR(bxc - 6, byc, 12, 14, 3, "#eaeff9");
+    ctx.strokeStyle = "#6b7ea6"; ctx.lineWidth = 1.2;
+    rr(bxc - 6, byc, 12, 14, 3); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(70,90,130,0.95)";
+    ctx.font = "700 14px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(String(hidden), bxc + 10, byc + 12);
   }
   // Bóng ma của thứ vừa vỡ: nở ra rồi tan, vẽ SAU cả lưới nên nó nằm trên cái đang
   // trượt lên — cái cũ tan để lộ cái mới bên dưới.

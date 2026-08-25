@@ -160,7 +160,10 @@ function layoutGrid(cols, rows) {
 //
 // Cao 350px cho 30 đơn vị, tức gần 12px một đơn vị — gấp bốn lần lúc bồn còn nằm
 // ngang. Từng đơn vị vào và ra giờ nhìn thấy được, không còn là một vệt nhích.
-const TANK = { x: 434, y: 458, w: 76, h: 350 };
+// ⚠ Hẹp 76 -> 68 và dời sang phải. Bồn đang là điểm hút mắt MẠNH NHẤT màn hình, nên
+// thứ tự đọc thành bồn → kho chai → bàn cờ, trong khi bàn cờ mới là chỗ ra quyết
+// định. Nó là chỉ báo tiến độ, không phải nhân vật chính.
+const TANK = { x: 442, y: 458, w: 68, h: 350 };
 
 // Thanh phân phối: nước từ bồn theo ống lên đây rồi xả xuống các cột ngay bên dưới.
 const MANI = { x: 24, y: 470, w: 352, h: 26 };
@@ -531,7 +534,16 @@ let lastDrain = 0, last = 0;
 function step(now, dt) {
   if (phase === "play") {
     // Bình ẩn lộ mặt bằng ĐÚNG phép thử của `liftable` — xem ghi chú ở `canEscape`.
-    for (const t of tiles) if (t.hidden && canEscape(t)) t.hidden = false;
+    // ⚠ Lộ mặt là một KHOẢNH KHẮC, không phải một phép gán. Nó là lúc bàn cờ trả lời
+    // một câu hỏi người chơi đang giữ trong đầu, nên phải có nhịp: chai nảy lên và loé
+    // một cái. Đổi cờ lặng lẽ thì cái "?" biến thành màu giữa hai khung hình và không
+    // ai kịp nhận ra bàn vừa mở ra thêm thông tin.
+    for (const t of tiles) {
+      if (!t.hidden || !canEscape(t)) continue;
+      t.hidden = false;
+      t.tap = 1;
+      sndReveal();
+    }
 
     // ⚠ **Bật nắp là một CHUYỂN TRẠNG THÁI, phải bắt ở đây chứ không tính lại khi
     // vẽ.** Hàm vẽ chạy mỗi khung hình và chỉ biết "lúc này khoá hay không"; cái
@@ -745,6 +757,23 @@ function sndPour(dur) {
 }
 
 
+
+/** Tiếng lộ mặt: một nốt ngắn đi lên — "à, ra là màu này". */
+function sndReveal() {
+  const ac = audio();
+  if (!ac) return;
+  const t0 = ac.currentTime;
+  const o = ac.createOscillator();
+  const g = ac.createGain();
+  o.type = "triangle";
+  o.frequency.setValueAtTime(520, t0);
+  o.frequency.exponentialRampToValueAtTime(1040, t0 + 0.12);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+  o.connect(g).connect(ac.destination);
+  o.start(t0); o.stop(t0 + 0.22);
+}
 /** Tiếng "cụp" ngắn, trầm khi chạm vào chai chưa mở được. */
 function sndNope() {
   const ac = audio();
@@ -959,7 +988,11 @@ function shelfSlot(n) {
  * không phải tính lại chỗ đặt kệ theo từng bàn.
  */
 function drawRacks() {
+  // ⚠ Nhạt hẳn xuống 0.42. Hai giá này là TRANG TRÍ, mà ở độ đậm cũ chúng hút mắt
+  // ngang với bàn cờ — nhận xét gọi đúng: màn hình đọc thành "một nhà máy rất nhiều
+  // chai" thay vì "bàn cờ, kho chai, cái bồn". Thứ tự phải là board rõ nhất.
   ctx.save();
+  ctx.globalAlpha = 0.42;
   rr(MACH.x, MACH.y, MACH.w, MACH.h, 38); ctx.clip();
   const top = MACH.y + 34, bot = TANK.y - 34;
   for (const side of [0, 1]) {
@@ -1034,12 +1067,9 @@ function fillCells(inset, radius, style, pad = 0) {
 function drawCavity() {
   fillCells(8, 21, UI.panelDeep, 0);
   fillCells(3, 17, UI.panel, 4);
-  // ⚠ **Vành phải NGẮT ở hàng đáy, không khép vòng.** Hàng đáy nằm trên miệng phễu
-  // — `canEscape` cho nó thoát vô điều kiện chính vì thế — nên vẽ một đường viền
-  // chắn ngang dưới nó là hình nói ngược lại luật: người chơi thấy bình bị bịt kín
-  // mà bấm vào thì nó vẫn rót. `buildMachine` của game cũ gọi đây là "the rim
-  // stopping dead at the last row of cells", và sàn trắng phải chạy liền một mạch
-  // xuống dưới thì cái miệng mới đọc ra là miệng.
+  // ⚠ Vành phải NGẮT ở hàng đáy. Hàng đáy nằm trên miệng phễu — `canEscape` cho nó
+  // thoát vô điều kiện chính vì thế — nên vẽ viền chắn ngang dưới nó là hình nói
+  // ngược lại luật: người chơi thấy chai bị bịt kín mà bấm vào thì nó vẫn rót.
   for (const [c, r] of cavity) {
     if (r !== GRID_ROWS - 1) continue;
     const x = cellX(c) - CELL / 2 - 3;
@@ -1047,11 +1077,23 @@ function drawCavity() {
     ctx.fillStyle = UI.panel;
     ctx.fillRect(x, y, CELL + 6, TANK.y - 12 - y);
   }
+
+  // ⚠ **Mặt kệ, không phải ô vuông rời.** Bản trước vẽ mỗi ô trống một hình vuông bo
+  // góc riêng, và cả lưới đọc thành block puzzle — chai nằm TRÊN các tile, không nằm
+  // TRONG một cái giá. Nhận xét gọi đúng tên: nó giống Tetris. Thay bằng một vạch kệ
+  // chạy suốt mỗi hàng: cùng lượng thông tin (hàng nào có chỗ), mà ngôn ngữ hình là
+  // "giá chứa chai" chứ không phải "lưới ô".
+  const rows = new Map();
   for (const [c, r] of cavity) {
-    if (grid.has(K(c, r))) continue;
-    fillRR(cellX(c) - CELL / 2 + 2, cellY(r) - CELL / 2 + 2, CELL - 4, CELL - 4, 12, "#e4ebf8");
-    ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 2;
-    rr(cellX(c) - CELL / 2 + 3, cellY(r) - CELL / 2 + 3, CELL - 6, CELL - 6, 11); ctx.stroke();
+    const e = rows.get(r) ?? { min: c, max: c };
+    rows.set(r, { min: Math.min(e.min, c), max: Math.max(e.max, c) });
+  }
+  for (const [r, e] of rows) {
+    const x0 = cellX(e.min) - CELL / 2 + 1;
+    const x1 = cellX(e.max) + CELL / 2 - 1;
+    const y = cellY(r) + CELL / 2 - 5;
+    fillRR(x0, y, x1 - x0, 5, 2.5, "rgba(140,160,196,0.34)");
+    fillRR(x0, y, x1 - x0, 2, 1, "rgba(255,255,255,0.85)");
   }
 }
 
@@ -1102,9 +1144,17 @@ function drawPot(p, locked, hidden, pop, tap, nope) {
   fillRR(bw / 2 - 9, -9, 18, 14, 4, "rgba(255,255,255,0.72)");
   ctx.strokeStyle = "rgba(96,120,160,0.5)"; ctx.lineWidth = 1.6;
   rr(bw / 2 - 9, -9, 18, 14, 4); ctx.stroke();
+  // ⚠ Chai ẩn vẫn là CÁI CHAI, chỉ là chưa biết màu — thân trắng như mọi chai khác,
+  // lòng phủ một lớp kính mờ. Tô đặc một khối xám thì nó đọc thành viên gạch chặn
+  // đường, tức là nhầm sang loại vật khác hẳn: người chơi tưởng nó là vật cản chứ
+  // không phải một chai sắp lộ mặt.
   bottlePath(0, 0, bw, bh);
-  ctx.fillStyle = hidden ? "#8d9bb4" : "rgba(255,255,255,0.72)";
+  ctx.fillStyle = "rgba(255,255,255,0.72)";
   ctx.fill();
+  if (hidden) {
+    bottlePath(3, 3, bw - 6, bh - 6);
+    ctx.fillStyle = "#c3cddf"; ctx.fill();
+  }
 
   if (!hidden && p.units > 0) {
     ctx.save();
@@ -1465,7 +1515,10 @@ function drawTank() {
   if (tank.total > 0) bubbles(x, w, y + h - (tank.total / TANK_CAP) * h, y + h, 9, 3, 2600);
   // Vệt sáng dọc trên mặt kính, vẽ đè lên nước — đó là thứ nói "có lớp kính ở đây".
   fillRR(x + 7, y + 8, 9, h - 20, 5, "rgba(255,255,255,0.34)");
-  ctx.fillStyle = "rgba(255,60,60,0.16)";
+  // Vùng nguy hiểm dịu bớt: 0.16 -> 0.10. Cái ống thuỷ bên hông đã đỏ và nhấp nháy
+  // khi tới ngưỡng; một mảng đỏ to trong lòng bồn nữa là nói hai lần, và nó chính là
+  // thứ khiến cái bồn hút mắt hơn cả bàn cờ.
+  ctx.fillStyle = "rgba(255,60,60,0.10)";
   ctx.fillRect(x, y, w, unit * (TANK_CAP - WARN_AT));
   ctx.restore();
   ctx.strokeStyle = "rgba(120,140,175,0.55)"; ctx.lineWidth = 1.4;

@@ -48,7 +48,11 @@
 // Toàn bộ file độc lập: không import gì, mở thẳng bằng browser cũng chạy.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const W = 540, H = 940;
+const W = 540;
+// ⚠ `H` tính sau, ngay dưới `MACH`, vì chiều cao tủ mới quyết định canvas cần cao
+// bao nhiêu. Viết cứng thì mỗi lần đổi kích thước chai lại thừa hoặc thiếu một dải
+// nền tím dưới đáy.
+let H = 940;
 
 // Bảng màu và tông máy lấy nguyên từ src/game/config.ts.
 const PAL = {
@@ -150,9 +154,10 @@ function layoutGrid(cols, rows) {
 // "còn bao nhiêu chỗ", cả hai đọc bằng bề dày dải màu. Chiều cao dôi ra chuyển hết
 // lên cho lưới bình, vì đó mới là chỗ ra quyết định.
 const TANK = { x: 34, y: 478, w: 472, h: 106 };
-// Chai kéo dài ra: 62px thân, hàng cách nhau 74. Cao hơn thì khối nước dài hơn, và
-// ba nấc 1/3–2/3–đầy tách nhau rõ hơn hẳn so với lúc thân chỉ 40px.
-const TR = { x0: 42, y0: 626, w: 106, gap: 8, h: 62, vgap: 12 };
+// Chai bẹt: rộng 76 trên thân cao 50. Rộng gần hết bề ngang cột nên khối nước dài
+// theo chiều ngang, và ba nấc 1/3–2/3–đầy vẫn tách nhau vì cái tách chúng là bề DÀY
+// của khối, không phải chiều cao cái chai.
+const TR = { x0: 42, y0: 626, w: 106, gap: 8, h: 50, vgap: 12 };
 
 // ⚠ Chỗ xén khu box: ba hàng ĐẦY ĐỦ, hàng thứ tư chỉ ló cái nắp.
 //
@@ -166,6 +171,7 @@ const TR_CUT = TR.y0 + 3 * (TR.h + TR.vgap) + 4;
 // chiều cao chai lại để hở một mảng tủ trắng dài phía dưới giếng — trông như bàn cờ
 // bị tụt lên trên. Buộc vào nhau thì không lệch lại được.
 const MACH = { x: 14, y: 74, w: 512, h: TR_CUT + 40 - 74 };
+H = MACH.y + MACH.h + 30;
 
 const cellX = (c) => GRID_X0 + c * PITCH + CELL / 2;
 const cellY = (r) => GRID_Y0 + r * PITCH + CELL / 2;
@@ -591,37 +597,49 @@ function sndPour(dur) {
   if (!ac) return;
   const t0 = ac.currentTime;
   const d = dur || 1.6;
+
+  // Dòng nước: nhiễu nâu chạy suốt cú rót.
   const src = ac.createBufferSource();
   src.buffer = noiseBuf(d + 0.2);
 
+  // ⚠ **Tần số cộng hưởng DÂNG DẦN suốt cú rót — đây mới là dấu hiệu "rót vào cốc".**
+  // Cái cốc đầy lên thì cột không khí bên trên ngắn lại, nên cả tiếng nước lẫn tiếng
+  // bọt đều cao dần. Bản trước giữ bandpass đứng ở 900Hz và chỉ cho nó rung quanh đó:
+  // ra tiếng dòng nước chảy ngoài trời, không ra tiếng rót vào vật chứa. Cái RAMP này
+  // gần như là toàn bộ khác biệt.
   const bp = ac.createBiquadFilter();
   bp.type = "bandpass";
-  bp.frequency.value = 900;
-  bp.Q.value = 1.4;
+  bp.frequency.setValueAtTime(520, t0);
+  bp.frequency.exponentialRampToValueAtTime(1950, t0 + d);
+  bp.Q.value = 1.6;
+  // Rung nhẹ chồng lên cái ramp — dòng nước có xoáy, không phải một cái còi trượt.
   const lfo = ac.createOscillator();
   const lfoGain = ac.createGain();
-  lfo.frequency.value = 5.5;
-  lfoGain.gain.value = 320;
+  lfo.frequency.value = 6.5;
+  lfoGain.gain.value = 200;
   lfo.connect(lfoGain).connect(bp.frequency);
 
   const hp = ac.createBiquadFilter();
   hp.type = "highpass";
-  hp.frequency.value = 320;
+  hp.frequency.value = 300;
 
   const g = ac.createGain();
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(0.075, t0 + 0.09);
-  g.gain.setValueAtTime(0.075, t0 + d - 0.25);
+  g.gain.exponentialRampToValueAtTime(0.085, t0 + 0.1);
+  g.gain.setValueAtTime(0.085, t0 + d - 0.22);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
 
   src.connect(bp).connect(hp).connect(g).connect(ac.destination);
   lfo.start(t0); lfo.stop(t0 + d);
   src.start(t0); src.stop(t0 + d);
 
-  // Bọt vỡ rải rác suốt cú rót — thứ tách "dòng nước" khỏi "tiếng ồn có màu".
-  for (let t = 0.12; t < d - 0.15; t += 0.09 + Math.random() * 0.12) {
-    blip(360 + Math.random() * 420, 0.022 + Math.random() * 0.02, t0 + t);
+  // Bọt: dày và cao dần theo đúng cái ramp trên. Thưa bọt thì còn lại tiếng xì.
+  for (let t = 0.08; t < d - 0.12; t += 0.055 + Math.random() * 0.075) {
+    const k = t / d;
+    blip(300 + k * 700 + Math.random() * 200, 0.02 + Math.random() * 0.018, t0 + t);
   }
+  // Cú "ục" đầu tiên khi dòng nước chạm đáy cốc.
+  blip(190, 0.05, t0 + 0.06);
 }
 
 /**
@@ -639,14 +657,18 @@ function sndDrip(k) {
   src.buffer = noiseBuf(0.05);
   const bp = ac.createBiquadFilter();
   bp.type = "bandpass";
-  bp.frequency.value = 2200 + k * 900;
+  bp.frequency.value = 2300 + k * 260;
   bp.Q.value = 2.5;
   const g = ac.createGain();
   g.gain.setValueAtTime(0.045, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
   src.connect(bp).connect(g).connect(ac.destination);
   src.start(t0); src.stop(t0 + 0.06);
-  blip(430 + k * 420, 0.1, t0 + 0.005);
+  // ⚠ Chênh cao độ giữa các giọt kéo từ 420Hz xuống 130Hz. Ba nấc đầy nhau cách xa
+  // quá thì ba giọt nghe thành ba âm thanh KHÁC NHAU, và tai đọc đó là ba sự kiện
+  // khác loại. Còn 130 thì chúng vẫn là một tiếng giọt nước, chỉ nhích lên khi bình
+  // gần đầy — đủ để nghe ra mà không phá mất tính đồng nhất.
+  blip(500 + k * 130, 0.1, t0 + 0.005);
 }
 // ── Draw ─────────────────────────────────────────────────────────────────────
 const cv = document.getElementById("c");
@@ -1303,7 +1325,11 @@ function drawWell() {
   // Giếng kết thúc ngay dưới chỗ cắt cộng chỗ cho badge, chứ không chạy tới đáy tủ —
   // để một khoảng trắng dài bên dưới hàng bị xén thì cái xén đọc thành lỗi vẽ.
   const hgt = TR_CUT + 30 - top;
-  fillRR(MACH.x + 3, top - 7, MACH.w - 6, hgt + 7, 32, UI.panelDeep);
+  // ⚠ Vành ngoài giếng đậm hơn `panelDeep` một bậc. Giếng, sàn khoang và thân tủ đều
+  // là ba sắc trắng-xám cách nhau vài phần trăm, nên ở tông cũ cái giếng không có
+  // đường bao — nó chỉ là một mảng hơi khác màu trên tủ. Đây là thứ khoanh vùng "chỗ
+  // nước chảy tới", nên nó phải có cạnh.
+  fillRR(MACH.x + 3, top - 7, MACH.w - 6, hgt + 7, 32, "#7d90b4");
   fillRR(MACH.x + 10, top, MACH.w - 20, hgt, 26, UI.panel);
   for (let i = 0; i < COLS; i++)
     fillRR(trX(i) - 3, top + 8, TR.w + 6, hgt - 14, 12, "rgba(159,176,203,0.22)");
@@ -1361,13 +1387,13 @@ function drawWell() {
 function drawTrough(x, y, t, open) {
   const p = PAL[t.color];
   const lv = t.filled / TROUGH_CAP;
-  const bw = 50, bh = TR.h;
+  const bw = 76, bh = TR.h;
   const bx = x + (TR.w - bw) / 2;
 
   ctx.globalAlpha = open ? 1 : 0.72;
 
   // Nắp — cùng màu nước, vì đây là thứ duy nhất mang màu khi bình còn rỗng.
-  fillRR(bx + bw / 2 - 8, y - 10, 16, 12, 4, p.base);
+  fillRR(bx + bw / 2 - 11, y - 10, 22, 12, 4, p.base);
 
   // Thân: gần trắng, chỉ ngả nhẹ về phía màu của nó.
   fillRR(bx, y, bw, bh, 13, "#f3f4fa");

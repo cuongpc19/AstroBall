@@ -90,7 +90,7 @@ const JAR_UNITS = 9;
 const TROUGH_CAP = 3;
 const TANK_CAP = 30;
 const COLS = 4;            // BOX_COLS của game cũ
-const TR_VISIBLE = 6;      // BOX_VISIBLE — vẽ bấy nhiêu, còn lại đếm bằng badge
+const TR_VISIBLE = 4;      // vẽ bấy nhiêu hàng box, còn lại đếm bằng badge (BOX_VISIBLE)
 const HATCH_LOAD = 3;      // số bình sau cánh cửa mỗi hatch
 const LID_LOAD = 4;        // số bình dưới mỗi tấm socola — game cũ cũng là 4
 
@@ -126,7 +126,7 @@ const MACH = { x: 14, y: 74, w: 512, h: 780 };
 // Lưới lấy kích thước TỪ blueprint mỗi level — bàn của game cũ có bàn 4x5, bàn 6x6.
 // Canh giữa theo bề ngang, ghim mép dưới cho hàng đáy luôn nằm ngay trên bồn.
 const CELL = 56, PITCH = 62;
-const GRID_BOTTOM = 472;
+const GRID_BOTTOM = 458;
 let GRID_COLS = 6, GRID_ROWS = 6, GRID_X0 = 0, GRID_Y0 = 100;
 function layoutGrid(cols, rows) {
   GRID_COLS = cols; GRID_ROWS = rows;
@@ -136,8 +136,10 @@ function layoutGrid(cols, rows) {
 // ⚠ Bồn cố tình thấp — 84px cho 30 đơn vị. Nó chỉ cần trả lời "đang giữ màu gì" và
 // "còn bao nhiêu chỗ", cả hai đọc bằng bề dày dải màu. Chiều cao dôi ra chuyển hết
 // lên cho lưới bình, vì đó mới là chỗ ra quyết định.
-const TANK = { x: 40, y: 500, w: 460, h: 84 };
-const TR = { x0: 42, y0: 618, w: 106, gap: 8, h: 32, vgap: 5 };
+const TANK = { x: 34, y: 478, w: 472, h: 106 };
+// Chỉ còn bốn hàng box, nên mỗi hàng cao hẳn lên (32 -> 44): cùng ngần ấy chỗ,
+// nhưng mực nước trong máng và con số n/3 đều to ra và đọc được từ xa hơn.
+const TR = { x0: 42, y0: 620, w: 106, gap: 8, h: 44, vgap: 5 };
 
 const cellX = (c) => GRID_X0 + c * PITCH + CELL / 2;
 const cellY = (r) => GRID_Y0 + r * PITCH + CELL / 2;

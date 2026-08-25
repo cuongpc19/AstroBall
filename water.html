@@ -1451,7 +1451,11 @@ function drawTrough(x, y, t, open) {
   // tính cho mọi chai, nên nếu không có cái lót này thì một chai rỗng chỉ còn cái nắp
   // để nói màu — mà cái nắp bé và nằm tách hẳn trên cùng. Lót vào trong thì màu bám
   // theo đúng hình cái chai, đọc được ngay cả khi chưa có giọt nước nào.
-  const ins = 7, lin = 4;
+  // ⚠ `lin` = 9: màu ăn từ mặt trong thành vào TỚI GẦN LÕI, chỉ chừa một lõi nhạt
+  // hẹp ở giữa. Ở 4px nó chỉ là một cái viền nữa; dày lên thì cả cái chai mang màu
+  // của nó, còn cái lõi nhạt là chỗ mực nước chạy — đọc mức nước trên một dải hẹp
+  // vẫn dễ hơn đọc nó trên một mảng rộng cùng tông với xung quanh.
+  const ins = 7, lin = 9;
   bottlePath(bx + ins, y + ins, bw - ins * 2, bh - ins * 2);
   ctx.fillStyle = p.base; ctx.fill();
   const iw = bw - (ins + lin) * 2, ih = bh - (ins + lin) * 2;

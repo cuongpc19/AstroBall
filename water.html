@@ -694,6 +694,36 @@ function rr(x, y, w, h, r) {
 }
 const fillRR = (x, y, w, h, r, s) => { rr(x, y, w, h, r); ctx.fillStyle = s; ctx.fill(); };
 
+/**
+ * Đường bao cái chai: cổ hẹp ở trên, hai VAI CONG trượt ra thân, đáy bo.
+ *
+ * ⚠ Hình chữ nhật bo góc không phải cái chai — nó là viên gạch có cái nút ở trên.
+ * Thứ làm mắt đọc ra "chai" là chỗ chuyển từ cổ ra thân: một đoạn cong đổ xuống hai
+ * bên. Đó là toàn bộ khác biệt, và nó nằm gọn trong hai đường bezier.
+ *
+ * Nhận nguyên hộp bao, nên gọi lại với hộp thụt vào là được cái chai nhỏ hơn đồng
+ * dạng — dùng cho lòng chai mà không phải viết đường bao thứ hai.
+ */
+function bottlePath(bx, y, bw, bh) {
+  const nw = Math.max(6, bw * 0.4);     // bề rộng cổ
+  const nh = bh * 0.14;                 // cổ cao bấy nhiêu rồi mới loe
+  const sh = bh * 0.24;                 // vai đổ hết trong bấy nhiêu
+  const r = Math.min(11, bw * 0.24);    // bo đáy
+  const cx = bx + bw / 2, nx = nw / 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - nx, y);
+  ctx.lineTo(cx - nx, y + nh);
+  ctx.bezierCurveTo(cx - nx, y + nh + sh * 0.62, bx, y + nh + sh * 0.38, bx, y + nh + sh);
+  ctx.lineTo(bx, y + bh - r);
+  ctx.quadraticCurveTo(bx, y + bh, bx + r, y + bh);
+  ctx.lineTo(bx + bw - r, y + bh);
+  ctx.quadraticCurveTo(bx + bw, y + bh, bx + bw, y + bh - r);
+  ctx.lineTo(bx + bw, y + nh + sh);
+  ctx.bezierCurveTo(bx + bw, y + nh + sh * 0.38, cx + nx, y + nh + sh * 0.62, cx + nx, y + nh);
+  ctx.lineTo(cx + nx, y);
+  ctx.closePath();
+}
+
 /** Tối màu một hex đi `f` lần. Dùng khi cần một bậc đậm hơn `dark` của bảng màu. */
 function shade(hex, f) {
   const n = parseInt(hex.slice(1), 16);
@@ -854,21 +884,23 @@ function drawPot(p, locked, hidden, pop, tap) {
   ctx.rotate(p.tilt * TILT_MAX);
   ctx.translate(-bw / 2, -bh / 2);
 
-  // ⚠ Kính sáng có viền slate, không phải trắng mờ: bình đứng trên sàn khoang trắng,
-  // và trắng mờ trên trắng thì cái bình chỉ còn là vũng nước màu lơ lửng.
-  // ⚠ Cổ chỉ nhô 9px, không phải 14. Ô cách nhau 62 mà thân bình cao 54, tức khe hở
-  // dọc chỉ có 8px — cổ dài 14 thò lên ĐÈ vào đáy bình hàng trên, và hai cái bình
-  // liền nhau theo chiều dọc đọc thành một cặp bị nối bằng ống. Đó chính là thứ bị
-  // nhận xét là "đường kẻ nối mỏng manh giữa các bình": không có đường nối nào cả,
-  // chỉ là cái cổ dài quá khe.
-  fillRR(bw / 2 - 9, -9, 18, 15, 4, "rgba(255,255,255,0.62)");
+  // ⚠ Cùng `bottlePath` với chai ở khu máng — cổ hẹp, hai vai cong trượt ra thân. Hai
+  // khu phải là MỘT họ hình: cái ở trên rót ra, cái ở dưới hứng vào, và người chơi
+  // đọc cả hai bằng cùng một thói quen. Chữ nhật bo góc ở trên với chai có vai ở dưới
+  // là hai đồ vật khác nhau bị bắt làm cùng một việc.
+  //
+  // Cổ chỉ nhô 9px: ô cách nhau 62 mà thân cao 54, khe dọc chỉ 8px — cổ dài hơn thế
+  // là thò lên đè vào đáy chai hàng trên, và hai cái đọc thành một cặp bị nối ống.
+  fillRR(bw / 2 - 9, -9, 18, 14, 4, "rgba(255,255,255,0.72)");
   ctx.strokeStyle = "rgba(96,120,160,0.5)"; ctx.lineWidth = 1.6;
-  rr(bw / 2 - 9, -9, 18, 15, 4); ctx.stroke();
-  fillRR(0, 0, bw, bh, 13, hidden ? "#8d9bb4" : "rgba(255,255,255,0.62)");
+  rr(bw / 2 - 9, -9, 18, 14, 4); ctx.stroke();
+  bottlePath(0, 0, bw, bh);
+  ctx.fillStyle = hidden ? "#8d9bb4" : "rgba(255,255,255,0.72)";
+  ctx.fill();
 
   if (!hidden && p.units > 0) {
     ctx.save();
-    rr(2, 2, bw - 4, bh - 4, 11); ctx.clip();
+    bottlePath(2, 2, bw - 4, bh - 4); ctx.clip();
     // ⚠ Mặt nước phải NẰM NGANG so với màn hình, không nghiêng theo bình — trong một
     // cái bình trong suốt thì nước dán vào thành là thứ mắt bắt ngay. Xoay ngược lại
     // đúng góc nghiêng trước khi đổ.
@@ -889,7 +921,7 @@ function drawPot(p, locked, hidden, pop, tap) {
 
   ctx.strokeStyle = locked ? "rgba(70,90,124,0.75)" : "rgba(88,112,155,0.6)";
   ctx.lineWidth = 2;
-  rr(0, 0, bw, bh, 13); ctx.stroke();
+  bottlePath(0, 0, bw, bh); ctx.stroke();
   fillRR(7, 8, 5, bh - 20, 2.5, "rgba(255,255,255,0.5)");
 
   if (hidden) {
@@ -949,13 +981,15 @@ function drawPot(p, locked, hidden, pop, tap) {
     // Màng tối trong bình tan cùng nhịp, nếu không thì nắp bay đi mà cái bình vẫn
     // xám — vẫn đọc là chưa mở được.
     ctx.globalAlpha = locked ? 1 : pop;
-    fillRR(2, 2, bw - 4, bh - 4, 11, "rgba(46,58,84,0.28)");
+    bottlePath(2, 2, bw - 4, bh - 4);
+    ctx.fillStyle = "rgba(46,58,84,0.28)"; ctx.fill();
     ctx.globalAlpha = 1;
     if (!locked) {
       // Một loé trắng trên thân, để "vừa mở được" bắt được mắt kể cả khi người chơi
       // đang nhìn chỗ khác trên bàn.
       ctx.globalAlpha = pop * 0.55;
-      fillRR(0, 0, bw, bh, 13, "#ffffff");
+      bottlePath(0, 0, bw, bh);
+      ctx.fillStyle = "#ffffff"; ctx.fill();
       ctx.globalAlpha = 1;
     }
   }
@@ -1400,24 +1434,31 @@ function drawTrough(x, y, t, open) {
 
   ctx.globalAlpha = open ? 1 : 0.72;
 
-  // Nắp — cùng màu nước, vì đây là thứ duy nhất mang màu khi bình còn rỗng.
-  fillRR(bx + bw / 2 - 8, y - 10, 16, 12, 4, p.base);
+  // Nắp vặn trên cổ — thứ mang màu ngay cả khi chai rỗng.
+  fillRR(bx + bw / 2 - 9, y - 9, 18, 11, 3.5, p.base);
 
-  // Thân: gần trắng, chỉ ngả nhẹ về phía màu của nó.
-  fillRR(bx, y, bw, bh, 13, "#f3f4fa");
-  // ⚠ Viền tô ĐẶC màu và dày 3px, không phải một nét mảnh nhạt màu. Giếng trắng, thân
-  // chai cũng gần trắng, nên cái viền là thứ DUY NHẤT tách hai lớp đó ra — và cũng là
-  // chỗ thứ hai (sau cái nắp) nói màu của chai. Nhạt và mảnh thì cả cột nhoè thành
-  // một mảng sáng, mà bốn cột cạnh nhau như thế là mất luôn hàng đợi.
-  ctx.strokeStyle = shade(p.dark, 0.8);
-  ctx.lineWidth = 3;
-  rr(bx, y, bw, bh, 13); ctx.stroke();
-  ctx.globalAlpha = open ? 1 : 0.72;
+  // ⚠ **Thành chai TRUNG TÍNH, không mang màu.** Nó vẫn có bề dày thật — tô cả thân
+  // rồi khoét lòng, còn lại một vành chừng 7px — nhưng vành đó là nâu nhạt cho mọi
+  // chai. Màu để dành cho hai chỗ: cái nắp và khối nước bên trong. Tô màu cả thành
+  // nữa thì chai rỗng và chai đầy trông gần như nhau, mà phân biệt hai cái đó là
+  // toàn bộ việc phải đọc ở khu này.
+  bottlePath(bx, y, bw, bh);
+  ctx.fillStyle = "#ece7e0"; ctx.fill();
+  ctx.strokeStyle = "#b3a99c"; ctx.lineWidth = 2.5;
+  ctx.stroke();
 
-  // Lòng: hốc nhạt cố định, rồi khối nước dâng trong đó.
-  const ix = bx + 7, iw = bw - 14, iy = y + 7, ih = bh - 14;
-  fillRR(ix, iy, iw, ih, 9, "#dfe3f0");
-  if (lv > 0) fillRR(ix, iy + ih - lv * ih, iw, lv * ih, 9, p.base);
+  const ins = 7;
+  bottlePath(bx + ins, y + ins, bw - ins * 2, bh - ins * 2);
+  ctx.fillStyle = "#f7f9fd"; ctx.fill();
+  if (lv > 0) {
+    ctx.save();
+    bottlePath(bx + ins, y + ins, bw - ins * 2, bh - ins * 2);
+    ctx.clip();
+    const top = y + bh - ins - lv * (bh - ins * 2);
+    ctx.fillStyle = p.base;
+    ctx.fillRect(bx, top, bw, bh);
+    ctx.restore();
+  }
 
   ctx.globalAlpha = 1;
 }

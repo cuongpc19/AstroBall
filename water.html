@@ -1020,12 +1020,6 @@ function drawTrough(x, y, t, open) {
 
   ctx.save();
   rr(bx + 2, y + 2, bw - 4, bh - 4, 10); ctx.clip();
-  // Hai vạch chia ở 1/3 và 2/3 — mực nước liên tục, không có mốc thì phải đoán.
-  ctx.strokeStyle = "rgba(120,140,175,0.32)"; ctx.lineWidth = 1;
-  for (let s = 1; s < TROUGH_CAP; s++) {
-    const yy = y + bh - (s / TROUGH_CAP) * bh;
-    ctx.beginPath(); ctx.moveTo(bx + 5, yy); ctx.lineTo(bx + bw - 5, yy); ctx.stroke();
-  }
   if (lv > 0) {
     const top = y + bh - lv * (bh - 3);
     const g = ctx.createLinearGradient(0, top, 0, y + bh);
@@ -1046,15 +1040,10 @@ function drawTrough(x, y, t, open) {
   // Vệt sáng mảnh trên thành trái, cùng ngôn ngữ với khay nước ở trên.
   fillRR(bx + 7, y + 7, 3.5, bh - 18, 1.8, "rgba(255,255,255,0.8)");
 
-  if (open) {
-    // ⚠ Viền trắng rồi mới tô mực: chữ nằm trên nền đổi màu theo mực nước.
-    ctx.font = "700 15px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.lineWidth = 3.4; ctx.strokeStyle = "rgba(255,255,255,0.92)"; ctx.lineJoin = "round";
-    ctx.strokeText(t.filled + "/" + TROUGH_CAP, bx + bw / 2, y + bh - 9);
-    ctx.fillStyle = UI.ink;
-    ctx.fillText(t.filled + "/" + TROUGH_CAP, bx + bw / 2, y + bh - 9);
-  }
+  // ⚠ Không vạch chia, không chữ "n/3". Mực nước tự nói nó đầy tới đâu, và cái bình
+  // chỉ có ba nấc — đủ thưa để đọc bằng mắt mà không cần thước. Vạch và chữ cộng lại
+  // là hai lớp ký hiệu chồng lên một thông tin duy nhất, trên một mảnh 64x40, nhân
+  // với mười sáu cái đang hiện cùng lúc.
 }
 
 function drawTroughs() {
@@ -1081,7 +1070,9 @@ function drawTroughs() {
   // Bóng ma của thứ vừa vỡ: nở ra rồi tan, vẽ SAU cả lưới nên nó nằm trên cái đang
   // trượt lên — cái cũ tan để lộ cái mới bên dưới.
   for (const f of flashes) {
-    const box = f.box ?? [trX(f.col), TR.y0, TR.w, TR.h];
+    // Khung loé phải là khung CÁI BÌNH, không phải cả ô cột. Ô rộng 106 còn bình chỉ
+    // 64, nên dùng ô thì cái nổ ra rộng gần gấp đôi thứ vừa biến mất.
+    const box = f.box ?? [trX(f.col) + (TR.w - 64) / 2, TR.y0 - 11, 64, TR.h + 11];
     const grow = (1 - f.t) * 5;
     ctx.globalAlpha = f.t * f.t;
     fillRR(box[0] - grow, box[1] - grow, box[2] + grow * 2, box[3] + grow * 2, 9 + grow, PAL[f.color].base);
